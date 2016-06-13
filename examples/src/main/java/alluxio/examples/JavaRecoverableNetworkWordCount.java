@@ -1,26 +1,39 @@
 /*
- * The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
- * (the "License"). You may not use this work except in compliance with the License, which is
- * available at www.apache.org/licenses/LICENSE-2.0
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
- * either express or implied, as more fully set forth in the License.
+ *    http://www.apache.org/licenses/LICENSE-2.0
  *
- * See the NOTICE file distributed with this work for information regarding copyright ownership.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package alluxio.examples;
 
-import com.google.common.collect.Lists;
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.Charset;
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.List;
+import java.util.regex.Pattern;
+
+import scala.Tuple2;
+
 import com.google.common.io.Files;
+
 import org.apache.spark.Accumulator;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaSparkContext;
-import org.apache.spark.api.java.function.FlatMapFunction;
-import org.apache.spark.api.java.function.Function;
-import org.apache.spark.api.java.function.Function2;
-import org.apache.spark.api.java.function.PairFunction;
+import org.apache.spark.api.java.function.*;
 import org.apache.spark.broadcast.Broadcast;
 import org.apache.spark.streaming.Durations;
 import org.apache.spark.streaming.Time;
@@ -28,15 +41,6 @@ import org.apache.spark.streaming.api.java.JavaDStream;
 import org.apache.spark.streaming.api.java.JavaPairDStream;
 import org.apache.spark.streaming.api.java.JavaReceiverInputDStream;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
-import org.apache.spark.streaming.api.java.JavaStreamingContextFactory;
-import scala.Tuple2;
-
-import java.io.File;
-import java.io.IOException;
-import java.nio.charset.Charset;
-import java.util.Arrays;
-import java.util.List;
-import java.util.regex.Pattern;
 
 /**
  * Use this singleton to get or register a Broadcast variable.
@@ -108,8 +112,10 @@ class JavaDroppedWordsCounter {
 public final class JavaRecoverableNetworkWordCount {
   private static final Pattern SPACE = Pattern.compile(" ");
 
-  private static JavaStreamingContext createContext(String ip, int port, String checkpointDirectory,
-      String outputPath) {
+  private static JavaStreamingContext createContext(String ip,
+                                                    int port,
+                                                    String checkpointDirectory,
+                                                    String outputPath) {
 
     // If you do not see this printed, that means the StreamingContext has been loaded
     // from the new checkpoint
@@ -118,8 +124,7 @@ public final class JavaRecoverableNetworkWordCount {
     if (outputFile.exists()) {
       outputFile.delete();
     }
-    SparkConf sparkConf =
-        new SparkConf().setAppName("JavaRecoverableNetworkWordCount").setMaster("local[2]");
+    SparkConf sparkConf = new SparkConf().setAppName("JavaRecoverableNetworkWordCount");
     // Create the context with a 1 second batch size
     JavaStreamingContext ssc = new JavaStreamingContext(sparkConf, Durations.seconds(1));
     ssc.checkpoint(checkpointDirectory);
@@ -129,26 +134,26 @@ public final class JavaRecoverableNetworkWordCount {
     JavaReceiverInputDStream<String> lines = ssc.socketTextStream(ip, port);
     JavaDStream<String> words = lines.flatMap(new FlatMapFunction<String, String>() {
       @Override
-      public Iterable<String> call(String x) {
-        return Lists.newArrayList(SPACE.split(x));
+      public Iterator<String> call(String x) {
+        return Arrays.asList(SPACE.split(x)).iterator();
       }
     });
-    JavaPairDStream<String, Integer> wordCounts =
-        words.mapToPair(new PairFunction<String, String, Integer>() {
-          @Override
-          public Tuple2<String, Integer> call(String s) {
-            return new Tuple2<String, Integer>(s, 1);
-          }
-        }).reduceByKey(new Function2<Integer, Integer, Integer>() {
-          @Override
-          public Integer call(Integer i1, Integer i2) {
-            return i1 + i2;
-          }
-        });
+    JavaPairDStream<String, Integer> wordCounts = words.mapToPair(
+      new PairFunction<String, String, Integer>() {
+        @Override
+        public Tuple2<String, Integer> call(String s) {
+          return new Tuple2<>(s, 1);
+        }
+      }).reduceByKey(new Function2<Integer, Integer, Integer>() {
+        @Override
+        public Integer call(Integer i1, Integer i2) {
+          return i1 + i2;
+        }
+      });
 
-    wordCounts.foreachRDD(new Function2<JavaPairRDD<String, Integer>, Time, Void>() {
+    wordCounts.foreachRDD(new VoidFunction2<JavaPairRDD<String, Integer>, Time>() {
       @Override
-      public Void call(JavaPairRDD<String, Integer> rdd, Time time) throws IOException {
+      public void call(JavaPairRDD<String, Integer> rdd, Time time) throws IOException {
         // Get or register the blacklist Broadcast
         final Broadcast<List<String>> blacklist =
             JavaWordBlacklist.getInstance(new JavaSparkContext(rdd.context()));
@@ -158,7 +163,7 @@ public final class JavaRecoverableNetworkWordCount {
         // Use blacklist to drop words and use droppedWordsCounter to count them
         String counts = rdd.filter(new Function<Tuple2<String, Integer>, Boolean>() {
           @Override
-          public Boolean call(Tuple2<String, Integer> wordCount) throws Exception {
+          public Boolean call(Tuple2<String, Integer> wordCount) {
             if (blacklist.value().contains(wordCount._1())) {
               droppedWordsCounter.add(wordCount._2());
               return false;
@@ -172,27 +177,24 @@ public final class JavaRecoverableNetworkWordCount {
         System.out.println("Dropped " + droppedWordsCounter.value() + " word(s) totally");
         System.out.println("Appending to " + outputFile.getAbsolutePath());
         Files.append(output + "\n", outputFile, Charset.defaultCharset());
-        return null;
       }
     });
 
     return ssc;
   }
 
-  public static void main(String[] args) {
+  public static void main(String[] args) throws Exception {
     if (args.length != 4) {
       System.err.println("You arguments were " + Arrays.asList(args));
       System.err.println(
           "Usage: JavaRecoverableNetworkWordCount <hostname> <port> <checkpoint-directory>\n" +
-              "     <output-file>. <hostname> and <port> describe the TCP server that Spark\n" +
-              "     Streaming would connect to receive data. <checkpoint-directory> directory to\n"
-              +
-              "     HDFS-compatible file system which checkpoint data <output-file> file to which\n"
-              +
-              "     the word counts will be appended\n" +
-              "\n" +
-              "In local mode, <master> should be 'local[n]' with n > 1\n" +
-              "Both <checkpoint-directory> and <output-file> must be absolute paths");
+          "     <output-file>. <hostname> and <port> describe the TCP server that Spark\n" +
+          "     Streaming would connect to receive data. <checkpoint-directory> directory to\n" +
+          "     HDFS-compatible file system which checkpoint data <output-file> file to which\n" +
+          "     the word counts will be appended\n" +
+          "\n" +
+          "In local mode, <master> should be 'local[n]' with n > 1\n" +
+          "Both <checkpoint-directory> and <output-file> must be absolute paths");
       System.exit(1);
     }
 
@@ -200,13 +202,18 @@ public final class JavaRecoverableNetworkWordCount {
     final int port = Integer.parseInt(args[1]);
     final String checkpointDirectory = args[2];
     final String outputPath = args[3];
-    JavaStreamingContextFactory factory = new JavaStreamingContextFactory() {
+
+    // Function to create JavaStreamingContext without any output operations
+    // (used to detect the new context)
+    Function0<JavaStreamingContext> createContextFunc = new Function0<JavaStreamingContext>() {
       @Override
-      public JavaStreamingContext create() {
+      public JavaStreamingContext call() {
         return createContext(ip, port, checkpointDirectory, outputPath);
       }
     };
-    JavaStreamingContext ssc = JavaStreamingContext.getOrCreate(checkpointDirectory, factory);
+
+    JavaStreamingContext ssc =
+      JavaStreamingContext.getOrCreate(checkpointDirectory, createContextFunc);
     ssc.start();
     ssc.awaitTermination();
   }

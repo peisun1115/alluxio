@@ -118,7 +118,8 @@ public final class JavaRecoverableNetworkWordCount {
     if (outputFile.exists()) {
       outputFile.delete();
     }
-    SparkConf sparkConf = new SparkConf().setAppName("JavaRecoverableNetworkWordCount");
+    SparkConf sparkConf =
+        new SparkConf().setAppName("JavaRecoverableNetworkWordCount").setMaster("local[2]");
     // Create the context with a 1 second batch size
     JavaStreamingContext ssc = new JavaStreamingContext(sparkConf, Durations.seconds(1));
     ssc.checkpoint(checkpointDirectory);

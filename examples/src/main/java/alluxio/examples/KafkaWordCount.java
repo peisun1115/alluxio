@@ -11,6 +11,8 @@
 
 package alluxio.examples;
 
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.function.FlatMapFunction;
@@ -110,14 +112,6 @@ public final class KafkaWordCount {
           }
         });
 
-    /*
-    // Initial state RDD input to mapWithState
-    @SuppressWarnings("unchecked")
-    List<Tuple2<String, Integer>> tuples =
-        Arrays.asList(new Tuple2<>("hello", 1), new Tuple2<>("world", 1));
-    JavaPairRDD<String, Integer> initialRDD = ssc.sparkContext().parallelizePairs(tuples);
-  */
-
     // Update the cumulative count function
     Function3<String, org.apache.spark.api.java.Optional<Integer>, State<Integer>, Tuple2<String,
         Integer>>
@@ -150,6 +144,8 @@ public final class KafkaWordCount {
               + "<outputPath> <checkpoint>");
       System.exit(1);
     }
+
+    Logger.getRootLogger().setLevel(Level.WARN);
 
     final String zkQuorum = args[0];
     final String group = args[1];

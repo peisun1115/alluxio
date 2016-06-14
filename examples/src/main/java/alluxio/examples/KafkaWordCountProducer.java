@@ -34,8 +34,8 @@ public class KafkaWordCountProducer {
   public static void main(String[] args) throws Exception {
     if (args.length < 5) {
       System.err.println(
-          "Usage: JavaKafkaWordCount <brokerList> <topic> <messagesPerSec> <wordsPerMessage> "
-              + "<maxUniqueMessageCount>");
+          "Usage: JavaKafkaWordCount <brokerList> <topic> <messagesPerSec> <wordLength> "
+              + "<wordsPerMessage> <maxUniqueMessageCount>");
       System.exit(1);
     }
 
@@ -44,8 +44,9 @@ public class KafkaWordCountProducer {
     final String brokers = args[0];
     final String topic = args[1];
     final int messagesPerSeccond = Integer.parseInt(args[2]);
-    final int wordsPerMessage = Integer.parseInt(args[3]);
-    final int maxUniqueMessageCount = Integer.parseInt(args[4]);
+    final int wordLength = Integer.parseInt(args[3]);
+    final int wordsPerMessage = Integer.parseInt(args[4]);
+    final int maxUniqueMessageCount = Integer.parseInt(args[5]);
 
     Map<String, Object> configs = new HashMap<>();
     configs.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokers);
@@ -57,8 +58,11 @@ public class KafkaWordCountProducer {
 
     // Build dictionary. The word is itentionally made long.
     for (int i = 0; i < maxUniqueMessageCount; i++) {
-      mDictionary.add(String
-          .format("%d-%X-%X-%X", i, mRandom.nextLong(), mRandom.nextLong(), mRandom.nextLong()));
+      StringBuilder sb = new StringBuilder();
+      sb.append(i);
+      for (int j = 0; j < wordLength; j++) {
+        sb.append(String.format("-%X", mRandom.nextLong()));
+      }
     }
 
     RateLimiter rateLimiter = RateLimiter.create(messagesPerSeccond);

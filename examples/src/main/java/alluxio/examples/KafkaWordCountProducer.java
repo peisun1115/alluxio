@@ -32,7 +32,7 @@ public class KafkaWordCountProducer {
   private static Random mRandom = new Random();
 
   public static void main(String[] args) throws Exception {
-    if (args.length < 5) {
+    if (args.length < 6) {
       System.err.println(
           "Usage: JavaKafkaWordCount <brokerList> <topic> <messagesPerSec> <wordLength> "
               + "<wordsPerMessage> <maxUniqueMessageCount>");

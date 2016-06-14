@@ -63,6 +63,7 @@ public class KafkaWordCountProducer {
       for (int j = 0; j < wordLength; j++) {
         sb.append(String.format("-%X", mRandom.nextLong()));
       }
+      mDictionary.add(sb.toString());
     }
 
     RateLimiter rateLimiter = RateLimiter.create(messagesPerSeccond);

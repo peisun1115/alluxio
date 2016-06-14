@@ -32,7 +32,6 @@ import org.apache.spark.streaming.api.java.JavaMapWithStateDStream;
 import org.apache.spark.streaming.api.java.JavaPairDStream;
 import org.apache.spark.streaming.api.java.JavaPairReceiverInputDStream;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
-import org.apache.spark.streaming.dstream.InternalMapWithStateDStream;
 import org.apache.spark.streaming.kafka.KafkaUtils;
 import scala.Tuple2;
 
@@ -146,6 +145,7 @@ public class StatefulKafkaWordCount {
     // DStream made of get cumulative counts that get updated in every batch
     JavaMapWithStateDStream<String, Integer, Integer, Tuple2<String, Integer>> stateDstream =
         wordsDstream.mapWithState(StateSpec.function(mappingFunc).initialState(initialRDD));
+    stateDstream.checkpoint(Durations.seconds(batchSize));
 
     stateDstream.print();
 

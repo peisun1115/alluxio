@@ -17,32 +17,22 @@
 
 package alluxio.examples;
 
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.List;
+import java.util.regex.Pattern;
+
+import scala.Tuple2;
+
 import org.apache.spark.SparkConf;
+import org.apache.spark.api.java.function.*;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.Optional;
-import org.apache.spark.api.java.function.FlatMapFunction;
-import org.apache.spark.api.java.function.Function;
-import org.apache.spark.api.java.function.Function3;
-import org.apache.spark.api.java.function.PairFunction;
+import org.apache.spark.api.java.StorageLevels;
 import org.apache.spark.streaming.Durations;
 import org.apache.spark.streaming.State;
 import org.apache.spark.streaming.StateSpec;
-import org.apache.spark.streaming.api.java.JavaDStream;
-import org.apache.spark.streaming.api.java.JavaMapWithStateDStream;
-import org.apache.spark.streaming.api.java.JavaPairDStream;
-import org.apache.spark.streaming.api.java.JavaPairReceiverInputDStream;
-import org.apache.spark.streaming.api.java.JavaStreamingContext;
-import org.apache.spark.streaming.kafka.KafkaUtils;
-import scala.Tuple2;
-
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.regex.Pattern;
+import org.apache.spark.streaming.api.java.*;
 
 /**
  * Counts words cumulatively in UTF8 encoded, '\n' delimited text received from the network every
@@ -57,44 +47,28 @@ import java.util.regex.Pattern;
  * `$ bin/run-example
  * org.apache.spark.examples.streaming.JavaStatefulNetworkWordCount localhost 9999`
  */
-public class StatefulKafkaWordCount {
+public class StatefulNetworkWordCount {
   private static final Pattern SPACE = Pattern.compile(" ");
 
   public static void main(String[] args) throws Exception {
-    if (args.length < 6) {
-      System.err.println(
-          "Usage: JavaKafkaWordCount <zkQuorum> <group> <topics> <numThreads> <batchSize> "
-              + "<checkpoint>");
+    if (args.length < 2) {
+      System.err.println("Usage: JavaStatefulNetworkWordCount <hostname> <port>");
       System.exit(1);
     }
 
-    Logger.getRootLogger().setLevel(Level.WARN);
+    // Create the context with a 1 second batch size
+    SparkConf sparkConf = new SparkConf().setAppName("JavaStatefulNetworkWordCount");
+    JavaStreamingContext ssc = new JavaStreamingContext(sparkConf, Durations.seconds(1));
+    ssc.checkpoint(".");
 
-    final String zkQuorum = args[0];
-    final String group = args[1];
-    final String topics = args[2];
-    final int numThreads = Integer.parseInt(args[3]);
-    final int batchSize = Integer.parseInt(args[4]);
-    final String checkpointDirectory = args[5];
+    // Initial state RDD input to mapWithState
+    @SuppressWarnings("unchecked")
+    List<Tuple2<String, Integer>> tuples =
+        Arrays.asList(new Tuple2<>("hello", 1), new Tuple2<>("world", 1));
+    JavaPairRDD<String, Integer> initialRDD = ssc.sparkContext().parallelizePairs(tuples);
 
-    SparkConf sparkConf = new SparkConf().setAppName("KafkaWordCount");
-    JavaStreamingContext ssc = new JavaStreamingContext(sparkConf, Durations.seconds(batchSize));
-    ssc.checkpoint(checkpointDirectory);
-
-    Map<String, Integer> topicMap = new HashMap<>();
-    for (String topic : topics.split(",")) {
-      topicMap.put(topic, numThreads);
-    }
-
-    JavaPairReceiverInputDStream<String, String> messages =
-        KafkaUtils.createStream(ssc, zkQuorum, group, topicMap);
-
-    JavaDStream<String> lines = messages.map(new Function<Tuple2<String, String>, String>() {
-      @Override
-      public String call(Tuple2<String, String> tuple2) {
-        return tuple2._2();
-      }
-    });
+    JavaReceiverInputDStream<String> lines = ssc.socketTextStream(
+            args[0], Integer.parseInt(args[1]), StorageLevels.MEMORY_AND_DISK_SER_2);
 
     JavaDStream<String> words = lines.flatMap(new FlatMapFunction<String, String>() {
       @Override
@@ -102,12 +76,6 @@ public class StatefulKafkaWordCount {
         return Arrays.asList(SPACE.split(x)).iterator();
       }
     });
-
-    // Initial state RDD input to mapWithState
-    @SuppressWarnings("unchecked")
-    List<Tuple2<String, Integer>> tuples =
-        Arrays.asList(new Tuple2<>("hello", 1), new Tuple2<>("world", 1));
-    JavaPairRDD<String, Integer> initialRDD = ssc.sparkContext().parallelizePairs(tuples);
 
     JavaPairDStream<String, Integer> wordsDstream = words.mapToPair(
         new PairFunction<String, String, Integer>() {

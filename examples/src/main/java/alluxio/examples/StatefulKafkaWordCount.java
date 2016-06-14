@@ -11,6 +11,7 @@
 
 package alluxio.examples;
 
+import com.google.common.io.Files;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.apache.spark.SparkConf;
@@ -20,9 +21,11 @@ import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.Function3;
 import org.apache.spark.api.java.function.PairFunction;
+import org.apache.spark.api.java.function.VoidFunction2;
 import org.apache.spark.streaming.Durations;
 import org.apache.spark.streaming.State;
 import org.apache.spark.streaming.StateSpec;
+import org.apache.spark.streaming.Time;
 import org.apache.spark.streaming.api.java.JavaDStream;
 import org.apache.spark.streaming.api.java.JavaMapWithStateDStream;
 import org.apache.spark.streaming.api.java.JavaPairDStream;
@@ -31,6 +34,9 @@ import org.apache.spark.streaming.api.java.JavaStreamingContext;
 import org.apache.spark.streaming.kafka.KafkaUtils;
 import scala.Tuple2;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -55,10 +61,10 @@ public class StatefulKafkaWordCount {
   private static final Pattern SPACE = Pattern.compile(" ");
 
   public static void main(String[] args) throws Exception {
-    if (args.length < 6) {
+    if (args.length < 7) {
       System.err.println(
           "Usage: JavaKafkaWordCount <zkQuorum> <group> <topics> <numThreads> <batchSize> "
-              + "<checkpoint>");
+              + "<outputPath> <checkpoint>");
       System.exit(1);
     }
 
@@ -69,7 +75,13 @@ public class StatefulKafkaWordCount {
     final String topics = args[2];
     final int numThreads = Integer.parseInt(args[3]);
     final int batchSize = Integer.parseInt(args[4]);
-    final String checkpointDirectory = args[5];
+    final String outputPath = args[5];
+    final String checkpointDirectory = args[6];
+
+    final File outputFile = new File(outputPath);
+    if (outputFile.exists()) {
+      outputFile.delete();
+    }
 
     SparkConf sparkConf = new SparkConf().setAppName("KafkaWordCount");
     JavaStreamingContext ssc = new JavaStreamingContext(sparkConf, Durations.seconds(batchSize));
@@ -129,7 +141,18 @@ public class StatefulKafkaWordCount {
         wordsDstream.mapWithState(StateSpec.function(mappingFunc).initialState(initialRDD));
 
     stateDstream.print();
-    stateDstream.count();
+
+    wordsDstream.foreachRDD(new VoidFunction2<JavaPairRDD<String, Integer>, Time>() {
+      @Override
+      public void call(JavaPairRDD<String, Integer> rdd, Time time) throws IOException {
+        // Use blacklist to drop words and use droppedWordsCounter to count them
+        String counts = rdd.collect().toString();
+        String output = "Counts at time " + time + " " + counts;
+        System.out.println(output);
+        System.out.println("Appending to " + outputFile.getAbsolutePath());
+        Files.append(output + "\n", outputFile, Charset.defaultCharset());
+      }
+    });
     ssc.start();
     ssc.awaitTermination();
   }

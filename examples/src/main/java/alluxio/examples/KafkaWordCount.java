@@ -108,45 +108,7 @@ public final class KafkaWordCount {
       }
     });
 
-
-    /*
-    JavaPairDStream<String, Integer> wordsDstream =
-        words.mapToPair(new PairFunction<String, String, Integer>() {
-          @Override
-          public Tuple2<String, Integer> call(String s) {
-            return new Tuple2<String, Integer>(s, 1);
-          }
-        });
-
-    // Update the cumulative count function
-    Function3<String, org.apache.spark.api.java.Optional<Integer>, State<Integer>, Tuple2<String,
-        Integer>>
-        mappingFunc =
-        new Function3<String, org.apache.spark.api.java.Optional<Integer>, State<Integer>,
-            Tuple2<String, Integer>>() {
-          @Override
-          public Tuple2<String, Integer> call(String word,
-              org.apache.spark.api.java.Optional<Integer> one, State<Integer> state) {
-            int sum = one.orElse(0) + (state.exists() ? state.get() : 0);
-            Tuple2<String, Integer> output = new Tuple2<>(word, sum);
-            state.update(sum);
-            return output;
-          }
-        };
-
-    // DStream made of get cumulative counts that get updated in every batch
-    JavaMapWithStateDStream<String, Integer, Integer, Tuple2<String, Integer>> stateDstream =
-        wordsDstream.mapWithState(StateSpec.function(mappingFunc));
-
-    stateDstream.print();
-    try {
-      Files.append(stateDstream.stateSnapshots().toString() + "\n", outputFile,
-          Charset.defaultCharset());
-    } catch (IOException e) {
-      System.out.println("Failed to write to file.");
-    }
-  */
-    JavaPairDStream<String, Integer> wordCounts = words.mapToPair(
+   JavaPairDStream<String, Integer> wordCounts = words.mapToPair(
         new PairFunction<String, String, Integer>() {
           @Override
           public Tuple2<String, Integer> call(String s) {

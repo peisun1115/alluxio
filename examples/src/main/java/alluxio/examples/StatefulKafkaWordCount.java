@@ -146,7 +146,12 @@ public class StatefulKafkaWordCount {
       @Override
       public void call(JavaPairRDD<String, Integer> rdd, Time time) throws IOException {
         // Use blacklist to drop words and use droppedWordsCounter to count them
-        String counts = rdd.collect().toString();
+        String counts = rdd.filter(new Function<Tuple2<String, Integer>, Boolean>() {
+              @Override
+              public Boolean call(Tuple2<String, Integer> wordCount) {
+                return true;
+              }
+            }).collect().toString();
         String output = "Counts at time " + time + " " + counts;
         System.out.println(output);
         System.out.println("Appending to " + outputFile.getAbsolutePath());

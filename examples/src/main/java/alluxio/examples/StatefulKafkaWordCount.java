@@ -19,6 +19,7 @@ import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.Optional;
 import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.api.java.function.Function;
+import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.api.java.function.Function3;
 import org.apache.spark.api.java.function.PairFunction;
 import org.apache.spark.api.java.function.VoidFunction2;
@@ -31,6 +32,7 @@ import org.apache.spark.streaming.api.java.JavaMapWithStateDStream;
 import org.apache.spark.streaming.api.java.JavaPairDStream;
 import org.apache.spark.streaming.api.java.JavaPairReceiverInputDStream;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
+import org.apache.spark.streaming.dstream.InternalMapWithStateDStream;
 import org.apache.spark.streaming.kafka.KafkaUtils;
 import scala.Tuple2;
 
@@ -146,12 +148,12 @@ public class StatefulKafkaWordCount {
       @Override
       public void call(JavaPairRDD<String, Integer> rdd, Time time) throws IOException {
         // Use blacklist to drop words and use droppedWordsCounter to count them
-        long counts = rdd.filter(new Function<Tuple2<String, Integer>, Boolean>() {
+        String counts = rdd.filter(new Function<Tuple2<String, Integer>, Boolean>() {
               @Override
               public Boolean call(Tuple2<String, Integer> wordCount) {
                 return true;
               }
-            }).count();
+        }).collect().toString();
         String output = "Counts at time " + time + " " + counts;
         System.out.println(output);
         System.out.println("Appending to " + outputFile.getAbsolutePath());

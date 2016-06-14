@@ -18,13 +18,19 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 /**
  * Generate unique words and publish them to a kafka topic.
  */
 public class KafkaWordCountProducer {
+  private static List<String> mDictionary = new ArrayList<>();
+  private static Random mRandom = new Random();
+
   public static void main(String[] args) throws Exception {
     if (args.length < 5) {
       System.err.println(
@@ -49,16 +55,23 @@ public class KafkaWordCountProducer {
         "org.apache.kafka.common.serialization.StringSerializer");
     KafkaProducer<String, String> producer = new KafkaProducer<>(configs);
 
+    // Build dictionary.
+    for (int i = 0; i < maxUniqueMessageCount; i++) {
+      StringBuilder sb = new StringBuilder();
+      sb.append(i);
+      sb.append("-");
+      sb.append(mRandom.nextLong());
+      mDictionary.add(sb.toString());
+    }
+
     RateLimiter rateLimiter = RateLimiter.create(messagesPerSeccond);
     long counter = 0;
     while (true) {
       StringBuilder sb = new StringBuilder();
-      for (int i = 0; i < messagesPerSeccond; i++) {
-        sb.append(counter + " ");
+      for (int i = 0; i < wordsPerMessage; i++) {
+        sb.append(mDictionary.get(i) + " ");
         counter++;
-        if (maxUniqueMessageCount >= 0) {
-          counter %= maxUniqueMessageCount;
-        }
+        counter %= maxUniqueMessageCount;
       }
       ProducerRecord<String, String> message = new ProducerRecord<>(topic, null, sb.toString());
       producer.send(message);

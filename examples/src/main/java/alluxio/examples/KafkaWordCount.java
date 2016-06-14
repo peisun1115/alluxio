@@ -14,15 +14,22 @@ package alluxio.examples;
 import com.google.common.io.Files;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
+import org.apache.spark.Accumulator;
 import org.apache.spark.SparkConf;
+import org.apache.spark.api.java.JavaPairRDD;
+import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.Function0;
+import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.api.java.function.Function3;
 import org.apache.spark.api.java.function.PairFunction;
+import org.apache.spark.api.java.function.VoidFunction2;
+import org.apache.spark.broadcast.Broadcast;
 import org.apache.spark.streaming.Durations;
 import org.apache.spark.streaming.State;
 import org.apache.spark.streaming.StateSpec;
+import org.apache.spark.streaming.Time;
 import org.apache.spark.streaming.api.java.JavaDStream;
 import org.apache.spark.streaming.api.java.JavaMapWithStateDStream;
 import org.apache.spark.streaming.api.java.JavaPairDStream;
@@ -37,6 +44,7 @@ import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -105,6 +113,7 @@ public final class KafkaWordCount {
     });
 
 
+    /*
     JavaPairDStream<String, Integer> wordsDstream =
         words.mapToPair(new PairFunction<String, String, Integer>() {
           @Override
@@ -140,6 +149,46 @@ public final class KafkaWordCount {
     } catch (IOException e) {
       System.out.println("Failed to write to file.");
     }
+  */
+    JavaPairDStream<String, Integer> wordCounts = words.mapToPair(
+        new PairFunction<String, String, Integer>() {
+          @Override
+          public Tuple2<String, Integer> call(String s) {
+            return new Tuple2<>(s, 1);
+          }
+        }).reduceByKey(new Function2<Integer, Integer, Integer>() {
+      @Override
+      public Integer call(Integer i1, Integer i2) {
+        return i1 + i2;
+      }
+    });
+    wordCounts.foreachRDD(new VoidFunction2<JavaPairRDD<String, Integer>, Time>() {
+      @Override
+      public void call(JavaPairRDD<String, Integer> rdd, Time time) throws IOException {
+        final Broadcast<List<String>> blacklist =
+            JavaWordBlacklist.getInstance(new JavaSparkContext(rdd.context()));
+        // Get or register the droppedWordsCounter Accumulator
+        final Accumulator<Integer> droppedWordsCounter =
+            JavaDroppedWordsCounter.getInstance(new JavaSparkContext(rdd.context()));
+        // Use blacklist to drop words and use droppedWordsCounter to count them
+        String counts = rdd.filter(new Function<Tuple2<String, Integer>, Boolean>() {
+          @Override
+          public Boolean call(Tuple2<String, Integer> wordCount) {
+            if (blacklist.value().contains(wordCount._1())) {
+              droppedWordsCounter.add(wordCount._2());
+              return false;
+            } else {
+              return true;
+            }
+          }
+        }).collect().toString();
+        String output = "Counts at time " + time + " " + counts;
+        System.out.println(output);
+        System.out.println("Dropped " + droppedWordsCounter.value() + " word(s) totally");
+        System.out.println("Appending to " + outputFile.getAbsolutePath());
+        Files.append(output + "\n", outputFile, Charset.defaultCharset());
+      }
+    });
 
     return ssc;
   }

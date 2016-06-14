@@ -110,11 +110,13 @@ public final class KafkaWordCount {
           }
         });
 
+    /*
     // Initial state RDD input to mapWithState
-    @SuppressWarnings("unchecked") List<Tuple2<String, Integer>> tuples =
+    @SuppressWarnings("unchecked")
+    List<Tuple2<String, Integer>> tuples =
         Arrays.asList(new Tuple2<>("hello", 1), new Tuple2<>("world", 1));
     JavaPairRDD<String, Integer> initialRDD = ssc.sparkContext().parallelizePairs(tuples);
-
+  */
 
     // Update the cumulative count function
     Function3<String, org.apache.spark.api.java.Optional<Integer>, State<Integer>, Tuple2<String,
@@ -134,7 +136,7 @@ public final class KafkaWordCount {
 
     // DStream made of get cumulative counts that get updated in every batch
     JavaMapWithStateDStream<String, Integer, Integer, Tuple2<String, Integer>> stateDstream =
-        wordsDstream.mapWithState(StateSpec.function(mappingFunc).initialState(initialRDD));
+        wordsDstream.mapWithState(StateSpec.function(mappingFunc));
 
     stateDstream.print();
 

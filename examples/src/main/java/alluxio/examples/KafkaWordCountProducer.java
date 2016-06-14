@@ -55,13 +55,10 @@ public class KafkaWordCountProducer {
         "org.apache.kafka.common.serialization.StringSerializer");
     KafkaProducer<String, String> producer = new KafkaProducer<>(configs);
 
-    // Build dictionary.
+    // Build dictionary. The word is itentionally made long.
     for (int i = 0; i < maxUniqueMessageCount; i++) {
-      StringBuilder sb = new StringBuilder();
-      sb.append(i);
-      sb.append("-");
-      sb.append(mRandom.nextLong());
-      mDictionary.add(sb.toString());
+      mDictionary.add(String
+          .format("%d-%X-%X-%X", i, mRandom.nextLong(), mRandom.nextLong(), mRandom.nextLong()));
     }
 
     RateLimiter rateLimiter = RateLimiter.create(messagesPerSeccond);

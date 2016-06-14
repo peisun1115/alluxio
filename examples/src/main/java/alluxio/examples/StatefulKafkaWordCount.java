@@ -117,11 +117,16 @@ public class StatefulKafkaWordCount {
         Arrays.asList(new Tuple2<>("hello", 1), new Tuple2<>("world", 1));
     JavaPairRDD<String, Integer> initialRDD = ssc.sparkContext().parallelizePairs(tuples);
 
-    JavaPairDStream<String, Integer> wordsDstream = words.mapToPair(
-        new PairFunction<String, String, Integer>() {
+    JavaPairDStream<String, Integer> wordsDstream =
+        words.mapToPair(new PairFunction<String, String, Integer>() {
           @Override
           public Tuple2<String, Integer> call(String s) {
             return new Tuple2<>(s, 1);
+          }
+        }).reduceByKey(new Function2<Integer, Integer, Integer>() {
+          @Override
+          public Integer call(Integer i1, Integer i2) {
+            return i1 + i2;
           }
         });
 

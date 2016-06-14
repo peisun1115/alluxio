@@ -11,10 +11,10 @@
 
 package alluxio.examples;
 
+import com.google.common.io.Files;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.apache.spark.SparkConf;
-import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.Function0;
@@ -32,10 +32,11 @@ import org.apache.spark.streaming.kafka.KafkaUtils;
 import scala.Tuple2;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -133,6 +134,12 @@ public final class KafkaWordCount {
         wordsDstream.mapWithState(StateSpec.function(mappingFunc));
 
     stateDstream.print();
+    try {
+      Files.append(stateDstream.stateSnapshots().toString() + "\n", outputFile,
+          Charset.defaultCharset());
+    } catch (IOException e) {
+      System.out.println("Failed to write to file.");
+    }
 
     return ssc;
   }

@@ -40,19 +40,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-/**
- * Counts words cumulatively in UTF8 encoded, '\n' delimited text received from the network every
- * second starting with initial value of word count.
- * Usage: JavaStatefulNetworkWordCount <hostname> <port>
- * <hostname> and <port> describe the TCP server that Spark Streaming would connect to receive
- * data.
- * <p>
- * To run this on your local machine, you need to first run a Netcat server
- * `$ nc -lk 9999`
- * and then run the example
- * `$ bin/run-example
- * org.apache.spark.examples.streaming.JavaStatefulNetworkWordCount localhost 9999`
- */
 public class StatefulKafkaWordCount {
   private static final Pattern SPACE = Pattern.compile(" ");
 

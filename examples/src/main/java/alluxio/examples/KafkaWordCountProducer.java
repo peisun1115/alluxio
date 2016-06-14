@@ -45,7 +45,7 @@ public class KafkaWordCountProducer {
     final String topic = args[1];
     final int messagesPerSeccond = Integer.parseInt(args[2]);
     final int wordsPerMessage = Integer.parseInt(args[3]);
-    final long maxUniqueMessageCount = Long.parseLong(args[4]);
+    final int maxUniqueMessageCount = Integer.parseInt(args[4]);
 
     Map<String, Object> configs = new HashMap<>();
     configs.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokers);
@@ -65,11 +65,11 @@ public class KafkaWordCountProducer {
     }
 
     RateLimiter rateLimiter = RateLimiter.create(messagesPerSeccond);
-    long counter = 0;
+    int counter = 0;
     while (true) {
       StringBuilder sb = new StringBuilder();
       for (int i = 0; i < wordsPerMessage; i++) {
-        sb.append(mDictionary.get(i) + " ");
+        sb.append(mDictionary.get(counter) + " ");
         counter++;
         counter %= maxUniqueMessageCount;
       }

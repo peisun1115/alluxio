@@ -48,7 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-public class StatefulKafkaWordCount {
+public class StatefulKafkaWordCount2 {
   private static final Pattern SPACE = Pattern.compile(" ");
 
   public static void main(String[] args) throws Exception {
@@ -85,6 +85,8 @@ public class StatefulKafkaWordCount {
 
     JavaPairReceiverInputDStream<String, String> messages =
         KafkaUtils.createStream(ssc, zkQuorum, group, topicMap);
+    // Just to increase the amount of data to checkpoint.
+    messages.checkpoint(Durations.seconds(batchSize));
 
     JavaDStream<String> lines = messages.map(new Function<Tuple2<String, String>, String>() {
       @Override
@@ -92,6 +94,7 @@ public class StatefulKafkaWordCount {
         return tuple2._2();
       }
     });
+    lines.checkpoint(Durations.seconds(batchSize));
 
     JavaDStream<String> words = lines.flatMap(new FlatMapFunction<String, String>() {
       @Override
@@ -99,6 +102,7 @@ public class StatefulKafkaWordCount {
         return Arrays.asList(SPACE.split(x)).iterator();
       }
     });
+    words.checkpoint(Durations.seconds(batchSize));
 
     // Initial state RDD input to mapWithState
     @SuppressWarnings("unchecked")
@@ -118,26 +122,7 @@ public class StatefulKafkaWordCount {
             return i1 + i2;
           }
         });
-
-    // Update the cumulative count function
-    Function3<String, Optional<Integer>, State<Integer>, Tuple2<String, Integer>> mappingFunc =
-        new Function3<String, Optional<Integer>, State<Integer>, Tuple2<String, Integer>>() {
-          @Override
-          public Tuple2<String, Integer> call(String word, Optional<Integer> one,
-              State<Integer> state) {
-            int sum = one.orElse(0) + (state.exists() ? state.get() : 0);
-            Tuple2<String, Integer> output = new Tuple2<>(word, sum);
-            state.update(sum);
-            return output;
-          }
-        };
-
-    // DStream made of get cumulative counts that get updated in every batch
-    JavaMapWithStateDStream<String, Integer, Integer, Tuple2<String, Integer>> stateDstream =
-        wordsDstream.mapWithState(StateSpec.function(mappingFunc).initialState(initialRDD));
-    stateDstream.checkpoint(Durations.seconds(batchSize));
-
-    stateDstream.print();
+    wordsDstream.checkpoint(Durations.seconds(batchSize));
 
     wordsDstream.foreachRDD(new VoidFunction2<JavaPairRDD<String, Integer>, Time>() {
       @Override

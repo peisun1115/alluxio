@@ -11,6 +11,7 @@
 
 package alluxio.examples;
 
+import com.google.common.io.Files;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.apache.spark.SparkConf;
@@ -21,18 +22,25 @@ import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.api.java.function.Function3;
 import org.apache.spark.api.java.function.PairFunction;
+import org.apache.spark.api.java.function.VoidFunction;
+import org.apache.spark.api.java.function.VoidFunction2;
+import org.apache.spark.streaming.Duration;
 import org.apache.spark.streaming.Durations;
 import org.apache.spark.streaming.State;
 import org.apache.spark.streaming.StateSpec;
+import org.apache.spark.streaming.Time;
 import org.apache.spark.streaming.api.java.JavaDStream;
 import org.apache.spark.streaming.api.java.JavaMapWithStateDStream;
 import org.apache.spark.streaming.api.java.JavaPairDStream;
 import org.apache.spark.streaming.api.java.JavaPairReceiverInputDStream;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
+import org.apache.spark.streaming.dstream.InternalMapWithStateDStream;
 import org.apache.spark.streaming.kafka.KafkaUtils;
 import scala.Tuple2;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -40,6 +48,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
+/**
+ * Counts words cumulatively in UTF8 encoded, '\n' delimited text received from the network every
+ * second starting with initial value of word count.
+ * Usage: JavaStatefulNetworkWordCount <hostname> <port>
+ * <hostname> and <port> describe the TCP server that Spark Streaming would connect to receive
+ * data.
+ * <p>
+ * To run this on your local machine, you need to first run a Netcat server
+ * `$ nc -lk 9999`
+ * and then run the example
+ * `$ bin/run-example
+ * org.apache.spark.examples.streaming.JavaStatefulNetworkWordCount localhost 9999`
+ */
 public class StatefulKafkaWordCount {
   private static final Pattern SPACE = Pattern.compile(" ");
 
@@ -131,6 +152,21 @@ public class StatefulKafkaWordCount {
 
     stateDstream.print();
 
+    wordsDstream.foreachRDD(new VoidFunction2<JavaPairRDD<String, Integer>, Time>() {
+      @Override
+      public void call(JavaPairRDD<String, Integer> rdd, Time time) throws IOException {
+        String output = "Counts at time " + System.nanoTime() + " " + time + " " +
+            rdd.values().reduce(new Function2<Integer, Integer, Integer>() {
+          @Override
+          public Integer call(Integer v1, Integer v2) throws Exception {
+            return v1 + v2;
+          }
+        }).toString();
+        System.out.println(output);
+        System.out.println("Appending to " + outputFile.getAbsolutePath());
+        Files.append(output + "\n", outputFile, Charset.defaultCharset());
+      }
+    });
     ssc.start();
     ssc.awaitTermination();
   }

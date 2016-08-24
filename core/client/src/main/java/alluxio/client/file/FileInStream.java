@@ -97,6 +97,8 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
   /** The read buffer in file seek. This is used in {@link #readCurrentBlockToEnd()}. */
   private byte[] mSeekBuffer;
 
+  /** The number of bytes read since last seek or create call. */
+  private long mBytesRead;
   /**
    * Creates a new file input stream.
    *

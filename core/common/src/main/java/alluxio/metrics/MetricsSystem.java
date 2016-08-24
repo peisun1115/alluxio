@@ -45,6 +45,7 @@ public class MetricsSystem {
   // Supported special instance names.
   public static final String MASTER_INSTANCE = "master";
   public static final String WORKER_INSTANCE = "worker";
+  public static final String CLIENT_INSTANCE = "client";
 
   public static final String SINK_REGEX = "^sink\\.(.+)\\.(.+)";
   public static final String SOURCE_REGEX = "^source\\.(.+)\\.(.+)";

@@ -14,6 +14,7 @@ package alluxio.client;
 import alluxio.metrics.source.Source;
 
 import com.codahale.metrics.Counter;
+import com.codahale.metrics.Histogram;
 import com.codahale.metrics.MetricRegistry;
 
 import javax.annotation.concurrent.ThreadSafe;
@@ -25,12 +26,18 @@ import javax.annotation.concurrent.ThreadSafe;
 public final class ClientSource implements Source {
   private static final String CLIENT_SOURCE_NAME = "client";
 
-  public static final String SEEKS_LOCAL = "SeeksLocal";
-  public static final String SEEKS_REMOTE = "SeeksRemote";
+  public static final MetricRegistry METRIC_REGISTRY = new MetricRegistry();
+  public static final Counter SEEKS_LOCAL =
+      METRIC_REGISTRY.counter(MetricRegistry.name("SeeksLocal"));
+  public static final Counter SEEKS_REMOTE =
+      METRIC_REGISTRY.counter(MetricRegistry.name("SeeksRemote"));
 
-  public static final MetricRegistry mMetricRegistry = new MetricRegistry();
-  public final Counter mSeeksLocal = mMetricRegistry.counter(MetricRegistry.name(SEEKS_LOCAL));
-  public final Counter mSeeksRemote = mMetricRegistry.counter(MetricRegistry.name(SEEKS_REMOTE));
+  public static final Histogram READ_SIZES =
+      METRIC_REGISTRY.histogram(MetricRegistry.name("ReadSizes"));
+  public static final Histogram SEEK_LATENCY =
+      METRIC_REGISTRY.histogram(MetricRegistry.name("SeekLatency"));
+  public static final Histogram READ_LATENCY =
+      METRIC_REGISTRY.histogram(MetricRegistry.name("ReadLatency"));
 
   /**
    * Constructs a new {@link ClientSource}.
@@ -44,6 +51,6 @@ public final class ClientSource implements Source {
 
   @Override
   public MetricRegistry getMetricRegistry() {
-    return mMetricRegistry;
+    return METRIC_REGISTRY;
   }
 }

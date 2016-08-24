@@ -12,11 +12,13 @@
 package alluxio.client.file;
 
 import alluxio.client.ClientContext;
+import alluxio.client.ClientSource;
 import alluxio.client.block.AlluxioBlockStore;
 import alluxio.client.block.BlockMasterClient;
 import alluxio.client.block.BlockStoreContext;
 import alluxio.exception.AlluxioException;
 import alluxio.exception.ExceptionMessage;
+import alluxio.metrics.MetricsSystem;
 import alluxio.resource.CloseableResource;
 import alluxio.util.IdUtils;
 import alluxio.util.network.NetworkAddressUtils;
@@ -48,6 +50,9 @@ public enum FileSystemContext {
   private FileSystemMasterClientPool mFileSystemMasterClientPool;
   private final AlluxioBlockStore mAlluxioBlockStore;
 
+  private final ClientSource mClientSource = new ClientSource();
+  private final MetricsSystem mClientMetricsSystem;
+
   /** A list of valid workers, if there is a local worker, only the local worker addresses. */
   @GuardedBy("mWorkerAddressesLock")
   private List<WorkerNetAddress> mWorkerAddresses;
@@ -61,6 +66,8 @@ public enum FileSystemContext {
     mFileSystemMasterClientPool =
         new FileSystemMasterClientPool(ClientContext.getMasterAddress());
     mAlluxioBlockStore = AlluxioBlockStore.get();
+    mClientMetricsSystem = new MetricsSystem(MetricsSystem.CLIENT_INSTANCE);
+    mClientMetricsSystem.registerSource(mClientSource);
   }
 
   /**

@@ -35,6 +35,7 @@ import alluxio.exception.PreconditionMessage;
 import alluxio.master.block.BlockId;
 import alluxio.wire.WorkerNetAddress;
 
+import com.codahale.metrics.Timer;
 import com.google.common.base.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -97,8 +98,6 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
   /** The read buffer in file seek. This is used in {@link #readCurrentBlockToEnd()}. */
   private byte[] mSeekBuffer;
 
-  /** The number of bytes read since last seek or create call. */
-  private long mBytesRead;
   /**
    * Creates a new file input stream.
    *
@@ -179,6 +178,7 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
         handleCacheStreamIOException(e);
       }
     }
+    mContext.getClientSource().getBytesRead().inc(1);
     return data;
   }
 
@@ -226,7 +226,11 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
       return -1;
     }
 
-    return len - bytesLeftToRead;
+    long bytesRead = len - bytesLeftToRead;
+    if (bytesRead > 0) {
+      mContext.getClientSource().getBytesRead().inc(bytesRead);
+    }
+    return (int) bytesRead;
   }
 
   @Override
@@ -239,6 +243,7 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
     if (mPos == pos) {
       return;
     }
+    Timer.Context context = mContext.getClientSource().getFileSeeks().time();
     Preconditions.checkArgument(pos >= 0, PreconditionMessage.ERR_SEEK_NEGATIVE.toString(), pos);
     Preconditions.checkArgument(pos <= maxSeekPosition(),
         PreconditionMessage.ERR_SEEK_PAST_END_OF_FILE.toString(), pos);
@@ -247,6 +252,7 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
     } else {
       seekInternalWithCachingPartiallyReadBlock(pos);
     }
+    context.close();
   }
 
   @Override

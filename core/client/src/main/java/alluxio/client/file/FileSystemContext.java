@@ -24,6 +24,7 @@ import alluxio.util.IdUtils;
 import alluxio.util.network.NetworkAddressUtils;
 import alluxio.wire.WorkerInfo;
 import alluxio.wire.WorkerNetAddress;
+import alluxio.worker.ClientMetrics;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -68,6 +69,7 @@ public enum FileSystemContext {
     mAlluxioBlockStore = AlluxioBlockStore.get();
     mClientMetricsSystem = new MetricsSystem(MetricsSystem.CLIENT_INSTANCE);
     mClientMetricsSystem.registerSource(mClientSource);
+    mClientMetricsSystem.start();
   }
 
   /**
@@ -115,6 +117,12 @@ public enum FileSystemContext {
     return mAlluxioBlockStore;
   }
 
+  /**
+   * @return the client source
+   */
+  public ClientSource getClientSource() {
+    return mClientSource;
+  }
   /**
    * Re-initializes the Block Store context. This method should only be used in
    * {@link ClientContext}.

@@ -11,11 +11,15 @@
 
 package alluxio.client;
 
+import alluxio.Constants;
 import alluxio.metrics.source.Source;
 
 import com.codahale.metrics.Counter;
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.Timer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.concurrent.ThreadSafe;
 
@@ -24,25 +28,21 @@ import javax.annotation.concurrent.ThreadSafe;
  */
 @ThreadSafe
 public final class ClientSource implements Source {
+  private static final Logger LOG = LoggerFactory.getLogger(Constants.LOGGER_TYPE);
   private static final String CLIENT_SOURCE_NAME = "client";
 
-  public static final MetricRegistry METRIC_REGISTRY = new MetricRegistry();
-  public static final Counter SEEKS_LOCAL =
-      METRIC_REGISTRY.counter(MetricRegistry.name("SeeksLocal"));
-  public static final Counter SEEKS_REMOTE =
-      METRIC_REGISTRY.counter(MetricRegistry.name("SeeksRemote"));
+  private final MetricRegistry mMetricRegistry = new MetricRegistry();
 
-  public static final Histogram READ_SIZES =
-      METRIC_REGISTRY.histogram(MetricRegistry.name("ReadSizes"));
-  public static final Histogram SEEK_LATENCY =
-      METRIC_REGISTRY.histogram(MetricRegistry.name("SeekLatency"));
-  public static final Histogram READ_LATENCY =
-      METRIC_REGISTRY.histogram(MetricRegistry.name("ReadLatency"));
+  // TODO(peis): Move all the metrics in ClientMetrics here.
+  private final Counter mBytesRead = mMetricRegistry.counter(MetricRegistry.name("BytesRead"));
+  private final Timer mFileSeeks = mMetricRegistry.timer(MetricRegistry.name("FileSeeks"));
 
   /**
    * Constructs a new {@link ClientSource}.
    */
-  public ClientSource() {}
+  public ClientSource() {
+    LOG.info("Client source is initialized.");
+  }
 
   @Override
   public String getName() {
@@ -51,6 +51,14 @@ public final class ClientSource implements Source {
 
   @Override
   public MetricRegistry getMetricRegistry() {
-    return METRIC_REGISTRY;
+    return mMetricRegistry;
+  }
+
+  public Counter getBytesRead() {
+    return mBytesRead;
+  }
+
+  public Timer getFileSeeks() {
+    return mFileSeeks;
   }
 }

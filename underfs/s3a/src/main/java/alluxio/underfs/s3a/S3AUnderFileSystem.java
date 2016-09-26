@@ -238,7 +238,12 @@ public class S3AUnderFileSystem extends UnderFileSystem {
   @Override
   public OutputStream create(String path, CreateOptions options) throws IOException {
     if (mkdirs(getParentKey(path), true)) {
-      return new S3AOutputStream(mBucketName, stripPrefixIfPresent(path), mManager);
+      // Return the direct stream if the user has enabled direct writes
+      if (Configuration.getBoolean(PropertyKey.UNDERFS_S3A_DIRECT_WRITES_ENABLED)) {
+        return new S3ADirectOutputStream(mBucketName, stripPrefixIfPresent(path), mManager);
+      } else {
+        return new S3AOutputStream(mBucketName, stripPrefixIfPresent(path), mManager);
+      }
     }
     return null;
   }
@@ -297,21 +302,21 @@ public class S3AUnderFileSystem extends UnderFileSystem {
   // Not supported
   @Override
   public Object getConf() {
-    LOG.warn("getConf is not supported when using S3UnderFileSystem, returning null.");
+    LOG.debug("getConf is not supported when using S3AUnderFileSystem, returning null.");
     return null;
   }
 
   // Not supported
   @Override
   public List<String> getFileLocations(String path) throws IOException {
-    LOG.warn("getFileLocations is not supported when using S3UnderFileSystem, returning null.");
+    LOG.debug("getFileLocations is not supported when using S3AUnderFileSystem, returning null.");
     return null;
   }
 
   // Not supported
   @Override
   public List<String> getFileLocations(String path, long offset) throws IOException {
-    LOG.warn("getFileLocations is not supported when using S3UnderFileSystem, returning null.");
+    LOG.debug("getFileLocations is not supported when using S3AUnderFileSystem, returning null.");
     return null;
   }
 
@@ -431,6 +436,12 @@ public class S3AUnderFileSystem extends UnderFileSystem {
 
   @Override
   public boolean rename(String src, String dst) throws IOException {
+    // If the user has enabled direct writes, skip the rename of Alluxio temporary files if the
+    // temporary file does not exist and the destination exists.
+    if (Configuration.getBoolean(PropertyKey.UNDERFS_S3A_DIRECT_WRITES_ENABLED)
+        && PathUtils.isTemporaryFileName(src) && !exists(src) && exists(dst)) {
+      return true;
+    }
     if (!exists(src)) {
       LOG.error("Unable to rename {} to {} because source does not exist.", src, dst);
       return false;

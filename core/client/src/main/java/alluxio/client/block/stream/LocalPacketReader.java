@@ -11,20 +11,17 @@
 
 package alluxio.client.block.stream;
 
-import alluxio.Constants;
 import alluxio.worker.block.io.LocalFileBlockReader;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
 import javax.annotation.concurrent.NotThreadSafe;
 
 /**
- * A netty block reader that streams a block region from a netty data server.
+ * A block reader that streams a block region from a netty data server.
  *
  * Protocol:
  * 1. The client sends a read request (blockId, offset, length).
@@ -43,8 +40,6 @@ import javax.annotation.concurrent.NotThreadSafe;
  */
 @NotThreadSafe
 public final class LocalPacketReader implements PacketReader {
-  private static final Logger LOG = LoggerFactory.getLogger(Constants.LOGGER_TYPE);
-
   private static final long LOCAL_READ_PACKET_SIZE = 64 * 1024;
 
   /** The file reader to read a local block. */

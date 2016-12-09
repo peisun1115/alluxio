@@ -293,7 +293,7 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
             mCtx.fireExceptionCaught(e);
             break;
           } finally {
-            Preconditions.checkState(buf.release());
+            buf.release();
           }
         }
       } catch (Throwable e) {

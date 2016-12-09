@@ -103,6 +103,16 @@ public final class BlockOutStream extends FilterOutputStream implements BoundedS
   }
 
   @Override
+  public void write(byte[] b) throws IOException {
+    out.write(b);
+  }
+
+  @Override
+  public void write(byte[] b, int off, int len) throws IOException {
+    out.write(b, off, len);
+  }
+
+  @Override
   public long remaining() {
     return ((PacketOutStream) out).remaining();
   }
@@ -142,16 +152,6 @@ public final class BlockOutStream extends FilterOutputStream implements BoundedS
     } finally {
       mCloser.close();
     }
-  }
-
-  @Override
-  public void write(byte[] b) throws IOException {
-    out.write(b);
-  }
-
-  @Override
-  public void write(byte[] b, int off, int len) throws IOException {
-    out.write(b, off, len);
   }
 
   /**

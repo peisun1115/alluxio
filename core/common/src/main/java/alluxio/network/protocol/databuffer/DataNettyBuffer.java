@@ -42,7 +42,7 @@ public final class DataNettyBuffer implements DataBuffer {
         "Reference count of this bytebuf is %s (1 expected).", bytebuf.refCnt());
 
     // increase the bytebuf reference count so it would not be recycled by Netty
-    bytebuf.retain();
+   //  bytebuf.retain();
     mNettyBuf = bytebuf;
     mBuffer = bytebuf.nioBuffer();
     mLength = length;

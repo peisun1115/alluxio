@@ -305,6 +305,7 @@ public class NettyPacketWriter implements PacketWriter {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws IOException {
+      LOG.info("PEIS: NettyPacketWriter#channelRead msg received {}.", msg);
       Preconditions.checkState(acceptMessage(msg), "Incorrect response type.");
       RPCProtoMessage response = (RPCProtoMessage) msg;
       Protocol.Status status = ((Protocol.Response) response.getMessage()).getStatus();
@@ -381,8 +382,10 @@ public class NettyPacketWriter implements PacketWriter {
     @Override
     public void operationComplete(ChannelFuture future) {
       if (!future.isSuccess()) {
+        LOG.error("Failed to write packet.", future.cause());
         future.channel().close();
       }
+      LOG.info("PEIS: {} bytes written.", mPosToWriteUncommitted);
 
       mLock.lock();
       try {

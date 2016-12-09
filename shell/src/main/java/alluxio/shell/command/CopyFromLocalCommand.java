@@ -64,15 +64,21 @@ public final class CopyFromLocalCommand extends AbstractShellCommand {
   public void run(CommandLine cl) throws AlluxioException, IOException {
     String[] args = cl.getArgs();
     String srcPath = args[0];
-    AlluxioURI dstPath = new AlluxioURI(args[1]);
-    List<File> srcFiles = AlluxioShellUtils.getFiles(srcPath);
-    if (srcFiles.size() == 0) {
-      throw new IOException("Local path " + srcPath + " does not exist.");
-    }
-    if (srcPath.contains(AlluxioURI.WILDCARD)) {
-      copyFromLocalWildcard(srcFiles, dstPath);
-    } else {
-      copyFromLocal(new File(srcPath), dstPath);
+    for (int i = 0; i < 10; i++) {
+      long start = System.nanoTime();
+      for (int j = 0; j < 10; j++) {
+        AlluxioURI dstPath = new AlluxioURI(String.format("%s_%d_%d", args[1], i, j));
+        List<File> srcFiles = AlluxioShellUtils.getFiles(srcPath);
+        if (srcFiles.size() == 0) {
+          throw new IOException("Local path " + srcPath + " does not exist.");
+        }
+        if (srcPath.contains(AlluxioURI.WILDCARD)) {
+          copyFromLocalWildcard(srcFiles, dstPath);
+        } else {
+          copyFromLocal(new File(srcPath), dstPath);
+        }
+      }
+      System.out.println((System.nanoTime() - start) * 1.0 / Constants.SECOND_NANO);
     }
   }
 

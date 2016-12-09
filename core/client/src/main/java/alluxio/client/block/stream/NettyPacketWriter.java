@@ -237,7 +237,6 @@ public class NettyPacketWriter implements PacketWriter {
                   .setSessionId(mSessionId).setType(mRequestType).build();
           mChannel.writeAndFlush(new RPCProtoMessage(writeRequest, null))
               .addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
-          LOG.info("last packet written");
         }
       });
 

@@ -144,6 +144,16 @@ public final class BlockOutStream extends FilterOutputStream implements BoundedS
     }
   }
 
+  @Override
+  public void write(byte[] b) throws IOException {
+    out.write(b);
+  }
+
+  @Override
+  public void write(byte[] b, int off, int len) throws IOException {
+    out.write(b, off, len);
+  }
+
   /**
    * Creates a new block output stream.
    *

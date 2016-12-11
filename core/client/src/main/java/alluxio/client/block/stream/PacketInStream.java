@@ -12,6 +12,7 @@
 package alluxio.client.block.stream;
 
 import alluxio.client.BoundedStream;
+import alluxio.client.PositionedReadable;
 import alluxio.client.Seekable;
 import alluxio.exception.PreconditionMessage;
 import alluxio.util.io.BufferUtils;
@@ -26,12 +27,13 @@ import java.io.InputStream;
 import javax.annotation.concurrent.NotThreadSafe;
 
 /**
- * Provides an {@link InputStream} implementation that is based on {@link PacketReader}s which
- * streams data packet by packet.
+ * Provides an {@link InputStream} implementation that is based on {@link PacketReader}s to
+ * stream data packet by packet.
  */
 @NotThreadSafe
-public class PacketInStream extends InputStream implements BoundedStream, Seekable {
-  /** The id of the block to which this instream provides access. */
+public final class PacketInStream extends InputStream implements BoundedStream, Seekable,
+    PositionedReadable {
+  /** The id of the block or UFS file to which this instream provides access. */
   private final long mId;
   /** The size in bytes of the block. */
   private final long mLength;
@@ -108,6 +110,45 @@ public class PacketInStream extends InputStream implements BoundedStream, Seekab
     mCurrentPacket.readBytes(b, off, toRead);
     mPos += toRead;
     return toRead;
+  }
+
+  @Override
+  public int read(long pos, byte[] b, int off, int len) throws IOException {
+    if (len == 0) {
+      return 0;
+    }
+    if (pos < 0 || pos >= mLength) {
+      return -1;
+    }
+
+    int lenCopy = len;
+    try (PacketReader reader = mPacketReaderFactory.create(pos, len)) {
+      // We try to read len bytes instead of returning after reading one packet because
+      // it is not free to create/close a PacketReader.
+      while (len > 0) {
+        ByteBuf buf = null;
+        try {
+          buf = reader.readPacket();
+          if (buf == null) {
+            break;
+          }
+          Preconditions.checkState(buf.readableBytes() <= len);
+          int toRead = buf.readableBytes();
+          buf.readBytes(b, off, toRead);
+          len -= toRead;
+          off += toRead;
+          return toRead;
+        } finally {
+          if (buf != null) {
+            buf.release();
+          }
+        }
+      }
+    }
+    if (lenCopy == len) {
+      return -1;
+    }
+    return lenCopy - len;
   }
 
   @Override

@@ -105,8 +105,6 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
       return;
     }
 
-    LOG.info("PEIS: DataServerWriterHandler#channelRead msg received {}.", object);
-
     RPCProtoMessage msg = (RPCProtoMessage) object;
     initializeRequest(msg);
 
@@ -122,16 +120,11 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
       DataBuffer dataBuffer = msg.getPayloadDataBuffer();
       ByteBuf buf;
       if (dataBuffer == null) {
-        LOG.info("PEIS: DataServerWriterHandler#channelRead final msg received {}.", object);
         buf = ctx.alloc().buffer(0, 0);
       } else {
         Preconditions.checkState(dataBuffer.getLength() > 0);
         assert dataBuffer.getNettyOutput() instanceof ByteBuf;
         buf = (ByteBuf) dataBuffer.getNettyOutput();
-      }
-      if (buf.refCnt() > 1) {
-        Preconditions
-            .checkState(buf.refCnt() == 1, "Data buffer has incorrect ref count {}.", buf.refCnt());
       }
       mPosToQueue += buf.readableBytes();
       mPackets.offer(buf);
@@ -141,11 +134,7 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
       }
       if (tooManyPacketsInFlight()) {
         ctx.channel().config().setAutoRead(false);
-        LOG.info("{} autoread is turned off.", ctx.channel());
       }
-    } catch (Throwable e) {
-      LOG.error("Failed to parse buffer.", e);
-      throw e;
     } finally {
       mLock.unlock();
     }
@@ -153,7 +142,7 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
 
   @Override
   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-    LOG.error("Failed to write packet " + (mRequest == null ? -1 : mRequest.mId) + ".", cause);
+    LOG.error("Failed to write block " + (mRequest == null ? -1 : mRequest.mId) + ".", cause);
     replyError(ctx.channel(), Protocol.Status.Code.INTERNAL, "", cause);
   }
 
@@ -164,6 +153,7 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
     } catch (IOException e) {
       LOG.warn("Failed to reset the write request inside channelUnregistered.");
     }
+    ctx.fireChannelUnregistered();
   }
 
   /**
@@ -212,15 +202,11 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
         .addListeners(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE, new ChannelFutureListener() {
           @Override
           public void operationComplete(ChannelFuture future) throws Exception {
-            LOG.info("PEIS: DataServerWriteHandler reply success");
             reset();
           }
         });
-    if (!channel.config().isAutoRead()) {
-      channel.config().setAutoRead(true);
-      LOG.info("{} autoread is turned on.", channel);
-      channel.read();
-    }
+    channel.config().setAutoRead(true);
+    channel.read();
   }
 
   private void reset() throws IOException {
@@ -261,43 +247,49 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
     @Override
     public void run() {
       try {
-        while (true) {
-          ByteBuf buf;
-          mLock.lock();
-          try {
-            buf = mPackets.poll();
-            if (buf == null) {
-              mPacketWriterActive = false;
-              break;
-            }
-            if (!tooManyPacketsInFlight() && !mCtx.channel().config().isAutoRead()) {
-              mCtx.channel().config().setAutoRead(true);
-              LOG.info("{} autoread is turned on.", mCtx.channel());
-              mCtx.read();
-            }
-          } finally {
-            mLock.unlock();
-          }
-
-          try {
-            // This is the last packet.
-            if (buf.readableBytes() == 0) {
-              replySuccess(mCtx.channel());
-              break;
-            }
-            mPosToWrite += buf.readableBytes();
-            incrementMetrics(buf.readableBytes());
-            writeBuf(buf, mPosToWrite);
-          } catch (Exception e) {
-            LOG.error("Failed to write packet at {}.", mPosToWrite, e);
-            mCtx.fireExceptionCaught(e);
-            break;
-          } finally {
-            buf.release();
-          }
-        }
+        runInternal();
       } catch (Throwable e) {
         LOG.error("Failed to run PacketWriter.", e);
+        throw e;
+      }
+    }
+
+    /**
+     * The actual implementation of the runnable.
+     */
+    private void runInternal() {
+      while (true) {
+        ByteBuf buf;
+        mLock.lock();
+        try {
+          buf = mPackets.poll();
+          if (buf == null) {
+            mPacketWriterActive = false;
+            break;
+          }
+          if (!tooManyPacketsInFlight()) {
+            mCtx.channel().config().setAutoRead(true);
+            mCtx.read();
+          }
+        } finally {
+          mLock.unlock();
+        }
+
+        try {
+          // This is the last packet.
+          if (buf.readableBytes() == 0) {
+            replySuccess(mCtx.channel());
+            break;
+          }
+          mPosToWrite += buf.readableBytes();
+          incrementMetrics(buf.readableBytes());
+          writeBuf(buf, mPosToWrite);
+        } catch (Exception e) {
+          mCtx.fireExceptionCaught(e);
+          break;
+        } finally {
+          buf.release();
+        }
       }
     }
   }

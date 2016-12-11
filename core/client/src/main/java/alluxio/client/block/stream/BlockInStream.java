@@ -12,12 +12,15 @@
 package alluxio.client.block.stream;
 
 import alluxio.client.BoundedStream;
+import alluxio.client.Locatable;
+import alluxio.client.PositionedReadable;
 import alluxio.client.Seekable;
 import alluxio.client.block.AlluxioBlockStore;
 import alluxio.client.block.BlockStoreContext;
 import alluxio.client.block.BlockWorkerClient;
 import alluxio.client.file.options.InStreamOptions;
 import alluxio.exception.AlluxioException;
+import alluxio.util.network.NetworkAddressUtils;
 import alluxio.wire.LockBlockResult;
 import alluxio.wire.WorkerNetAddress;
 import alluxio.worker.block.io.LocalFileBlockReader;
@@ -27,6 +30,7 @@ import com.google.common.io.Closer;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.InetSocketAddress;
 
 import javax.annotation.concurrent.NotThreadSafe;
 
@@ -39,11 +43,13 @@ import javax.annotation.concurrent.NotThreadSafe;
  * Alluxio Stream interfaces.
  */
 @NotThreadSafe
-public final class BlockInStream extends FilterInputStream implements BoundedStream, Seekable {
+public final class BlockInStream extends FilterInputStream implements BoundedStream, Seekable,
+    PositionedReadable, Locatable {
   /** Helper to manage closeables. */
   private final Closer mCloser;
   private final BlockWorkerClient mBlockWorkerClient;
   private final long mBlockId;
+  private final boolean mLocal;
 
   /**
    * Creates an instance of {@link BlockInStream}.
@@ -133,6 +139,21 @@ public final class BlockInStream extends FilterInputStream implements BoundedStr
     ((PacketInStream) in).seek(pos);
   }
 
+  @Override
+  public int read(long pos, byte[] b, int off, int len) throws IOException {
+    return ((PacketInStream) in).read(pos, b, off, len);
+  }
+
+  @Override
+  public InetSocketAddress location() {
+    return mBlockWorkerClient.getDataServerAddress();
+  }
+
+  @Override
+  public boolean isLocal() {
+    return mLocal;
+  }
+
   /**
    * Creates an instance of {@link BlockInStream}.
    *
@@ -154,6 +175,8 @@ public final class BlockInStream extends FilterInputStream implements BoundedStr
     mCloser.register(in);
     mCloser.register(mBlockWorkerClient);
     try {
+      mLocal = blockWorkerClient.getDataServerAddress().getHostName()
+          .equals(NetworkAddressUtils.getLocalHostName());
       mBlockWorkerClient.accessBlock(blockId);
     } catch (IOException e) {
       mCloser.close();

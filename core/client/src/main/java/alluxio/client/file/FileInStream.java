@@ -18,9 +18,9 @@ import alluxio.annotation.PublicApi;
 import alluxio.client.AlluxioStorageType;
 import alluxio.client.BoundedStream;
 import alluxio.client.Cancelable;
+import alluxio.client.Locatable;
+import alluxio.client.PositionedReadable;
 import alluxio.client.Seekable;
-import alluxio.client.block.BlockInStream;
-import alluxio.client.block.BufferedBlockOutStream;
 import alluxio.client.block.LocalBlockInStream;
 import alluxio.client.block.RemoteBlockInStream;
 import alluxio.client.block.UnderStoreBlockInStream;
@@ -51,14 +51,18 @@ import javax.annotation.concurrent.NotThreadSafe;
  * collection of {@link #read} methods to access this stream of bytes. In addition, one can seek
  * into a given offset of the stream to read.
  * <p>
- * This class wraps the {@link BlockInStream} for each of the blocks in the file and abstracts the
+ * This class wraps the block in stream for each of the blocks in the file and abstracts the
  * switching between streams. The backing streams can read from Alluxio space in the local machine,
  * remote machines, or the under storage system.
  */
 @PublicApi
 @NotThreadSafe
-public class FileInStream extends InputStream implements BoundedStream, Seekable {
+public class FileInStream extends InputStream implements BoundedStream, Seekable,
+    PositionedReadable {
   private static final Logger LOG = LoggerFactory.getLogger(Constants.LOGGER_TYPE);
+
+  private static final boolean PACKET_STREAMING_ENABLED =
+      Configuration.getBoolean(PropertyKey.USER_PACKET_STREAMING_ENABLED);
 
   /** The instream options. */
   private final InStreamOptions mInStreamOptions;
@@ -91,9 +95,9 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
   private final boolean mShouldCache;
 
   // The following 3 fields must be kept in sync. They are only updated in updateStreams together.
-  /** Current {@link BlockInStream} backing this stream. */
+  /** Current block in stream backing this stream. */
   protected InputStream mCurrentBlockInStream;
-  /** Current {@link BufferedBlockOutStream} writing the data into Alluxio. */
+  /** Current block out stream writing the data into Alluxio. */
   protected OutputStream mCurrentCacheStream;
   /** The blockId used in the block streams. */
   private long mStreamBlockId;
@@ -234,6 +238,49 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
   }
 
   @Override
+  public int read(long pos, byte[] b, int off, int len) throws IOException {
+    if (!PACKET_STREAMING_ENABLED) {
+      throw new RuntimeException(
+          "PositionedReadable interface is implemented only if packet streaming is enabled.");
+    }
+    if (pos < 0 || pos >= mFileLength) {
+      return -1;
+    }
+
+    // If partial read cache is enabled, we fall back to the normal read.
+    if (mShouldCachePartiallyReadBlock) {
+      synchronized (this) {
+        long oldPos = mPos;
+        try {
+          seek(pos);
+          return read(b, off, len);
+        } finally {
+          seek(oldPos);
+        }
+      }
+    }
+
+    int lenCopy = len;
+
+    while (len > 0) {
+      if (pos >= mFileLength) {
+        break;
+      }
+      long blockId = getBlockId(pos);
+      long blockPos = pos % mBlockSize;
+      try (InputStream inputStream = getBlockInStream(blockId)) {
+        assert inputStream instanceof PositionedReadable;
+        int bytesRead = ((PositionedReadable) inputStream).read(blockPos, b, off, len);
+        Preconditions.checkState(bytesRead > 0, "No data is read before EOF");
+        pos += bytesRead;
+        off += bytesRead;
+        len -= bytesRead;
+      }
+    }
+    return lenCopy - len;
+  }
+
+  @Override
   public long remaining() {
     return mFileLength - mPos;
   }
@@ -280,15 +327,15 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
   }
 
   /**
-   * Creates and returns a {@link BlockInStream} for the UFS.
+   * Creates and returns a {@link InputStream} for the UFS.
    *
    * @param blockStart the offset to start the block from
    * @param length the length of the block
    * @param path the UFS path
-   * @return the {@link BlockInStream} for the UFS
+   * @return the {@link InputStream} for the UFS
    * @throws IOException if the stream cannot be created
    */
-  protected BlockInStream createUnderStoreBlockInStream(long blockStart, long length, String path)
+  protected InputStream createUnderStoreBlockInStream(long blockStart, long length, String path)
       throws IOException {
     return new UnderStoreBlockInStream(blockStart, length, mBlockSize,
         getUnderStoreStreamFactory(path, mContext));
@@ -387,7 +434,15 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
     if (remaining() <= 0) {
       return -1;
     }
-    int index = (int) (mPos / mBlockSize);
+    return getBlockId(mPos);
+  }
+
+  /**
+   * @param pos the pos
+   * @return the block ID based on the pos
+   */
+  private long getBlockId(long pos) {
+    int index = (int) (pos / mBlockSize);
     Preconditions
         .checkState(index < mStatus.getBlockIds().size(), PreconditionMessage.ERR_BLOCK_INDEX);
     return mStatus.getBlockIds().get(index);
@@ -466,13 +521,12 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
       return;
     }
     Preconditions.checkNotNull(mCurrentBlockInStream);
-    if (!mShouldCache || mCurrentBlockInStream instanceof LocalBlockInStream) {
+    if (!mShouldCache || isReadingFromLocalBlockWorker()) {
       return;
     }
 
     // If this block is read from a remote worker but we don't have a local worker, don't cache
-    if (mCurrentBlockInStream instanceof RemoteBlockInStream
-        && !mContext.getBlockStoreContext().hasLocalWorker()) {
+    if (isReadingFromRemoteBlockWorker() && !mContext.getBlockStoreContext().hasLocalWorker()) {
       return;
     }
 
@@ -501,7 +555,7 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
    * This function is only called in {@link #updateStreams()}.
    *
    * @param blockId cached result of {@link #getCurrentBlockId()}
-   * @throws IOException if the next {@link BlockInStream} cannot be obtained
+   * @throws IOException if the next block in stream cannot be obtained
    */
   private void updateBlockInStream(long blockId) throws IOException {
     if (mCurrentBlockInStream != null) {
@@ -513,6 +567,17 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
     if (blockId < 0) {
       return;
     }
+    mCurrentBlockInStream = getBlockInStream(blockId);
+  }
+
+  /**
+   * Gets the block in stream corresponding a block ID.
+   *
+   * @param blockId the block ID
+   * @return the block in stream
+   * @throws IOException if the block in stream cannot be obtained
+   */
+  private InputStream getBlockInStream(long blockId) throws IOException {
     try {
       if (mAlluxioStorageType.isPromote()) {
         try {
@@ -522,8 +587,7 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
           LOG.warn("Promotion of block with ID {} failed.", blockId, e);
         }
       }
-      mCurrentBlockInStream =
-          mContext.getAlluxioBlockStore().getInStream(blockId, mInStreamOptions);
+      return mContext.getAlluxioBlockStore().getInStream(blockId, mInStreamOptions);
     } catch (IOException e) {
       LOG.debug("Failed to get BlockInStream for block with ID {}, using UFS instead. {}", blockId,
           e);
@@ -533,8 +597,8 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
         throw e;
       }
       long blockStart = BlockId.getSequenceNumber(blockId) * mBlockSize;
-      mCurrentBlockInStream =
-          createUnderStoreBlockInStream(blockStart, getBlockSize(blockStart), mStatus.getUfsPath());
+      return createUnderStoreBlockInStream(blockStart, getBlockSize(blockStart),
+          mStatus.getUfsPath());
     }
   }
 
@@ -636,6 +700,25 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
       Preconditions.checkState(bytesRead > 0, PreconditionMessage.ERR_UNEXPECTED_EOF);
       len -= bytesRead;
     } while (len > 0);
+  }
+
+  /**
+   * @return true if {@code mCurrentBlockInStream} is reading from a local block worker
+   */
+  boolean isReadingFromLocalBlockWorker() {
+    return (mCurrentBlockInStream instanceof LocalBlockInStream) || (
+        mCurrentBlockInStream instanceof Locatable && ((Locatable) mCurrentBlockInStream)
+            .isLocal());
+  }
+
+  /**
+   *
+   * @return true if {@code mCurrentBlockInStream} is reading from a remote block worker
+   */
+  boolean isReadingFromRemoteBlockWorker() {
+    return (mCurrentBlockInStream instanceof RemoteBlockInStream) || (
+        mCurrentBlockInStream instanceof Locatable && !(((Locatable) mCurrentBlockInStream)
+            .isLocal()));
   }
 
   /**

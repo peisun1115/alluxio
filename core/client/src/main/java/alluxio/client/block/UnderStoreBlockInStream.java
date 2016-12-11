@@ -11,7 +11,10 @@
 
 package alluxio.client.block;
 
+import alluxio.Configuration;
 import alluxio.Constants;
+import alluxio.PropertyKey;
+import alluxio.client.PositionedReadable;
 import alluxio.exception.ExceptionMessage;
 import alluxio.exception.PreconditionMessage;
 import alluxio.metrics.MetricsSystem;
@@ -32,7 +35,10 @@ import javax.annotation.concurrent.ThreadSafe;
  * storage client.
  */
 @NotThreadSafe
-public final class UnderStoreBlockInStream extends BlockInStream {
+public final class UnderStoreBlockInStream extends BlockInStream implements PositionedReadable {
+  private static final boolean PACKET_STREAMING_ENABLED =
+      Configuration.getBoolean(PropertyKey.USER_PACKET_STREAMING_ENABLED);
+
   /**
    * The block size of the file. See {@link #getLength()} for more length information.
    */
@@ -59,10 +65,11 @@ public final class UnderStoreBlockInStream extends BlockInStream {
    */
   public interface UnderStoreStreamFactory extends AutoCloseable {
     /**
+     * @param length the length to read from the file (set to Long.MAX_VALUE if unknown)
      * @return an input stream to under storage
      * @throws IOException if an IO exception occurs
      */
-    InputStream create() throws IOException;
+    InputStream create(long length) throws IOException;
 
     /**
      * Closes the factory, releasing any resources it was holding.
@@ -145,6 +152,34 @@ public final class UnderStoreBlockInStream extends BlockInStream {
   }
 
   @Override
+  public int read(long pos, byte[] b, int off, int len) throws IOException {
+    if (!PACKET_STREAMING_ENABLED) {
+      throw new RuntimeException(
+          "PositionedReadable interface is implemented only if packet streaming is enabled.");
+    }
+
+    if (pos >= mLength) {
+      return -1;
+    }
+
+    if (mUnderStoreStream instanceof PositionedReadable) {
+      return ((PositionedReadable) mUnderStoreStream).read(pos, b, off, len);
+    } else if (mUnderStoreStream instanceof org.apache.hadoop.fs.PositionedReadable) {
+      return ((org.apache.hadoop.fs.PositionedReadable) mUnderStoreStream).read(pos, b, off, len);
+    }  else {
+      synchronized (this) {
+        long oldPos = mPos;
+        try {
+          seek(pos);
+          return mUnderStoreStream.read(b, off, len);
+        } finally {
+          seek(oldPos);
+        }
+      }
+    }
+  }
+
+  @Override
   public long remaining() {
     return getLength() - mPos;
   }
@@ -192,8 +227,8 @@ public final class UnderStoreBlockInStream extends BlockInStream {
     Preconditions.checkArgument(pos >= 0, PreconditionMessage.ERR_SEEK_NEGATIVE.toString(), pos);
     Preconditions.checkArgument(pos <= mLength,
         PreconditionMessage.ERR_SEEK_PAST_END_OF_BLOCK.toString(), pos);
-    mUnderStoreStream = mUnderStoreStreamFactory.create();
     long streamStart = mInitPos + pos;
+    mUnderStoreStream = mUnderStoreStreamFactory.create(mInitPos + mFileBlockSize);
     // The stream is at the beginning of the file, so skip to the correct absolute position.
     if (streamStart != 0 && streamStart != mUnderStoreStream.skip(streamStart)) {
       mUnderStoreStream.close();

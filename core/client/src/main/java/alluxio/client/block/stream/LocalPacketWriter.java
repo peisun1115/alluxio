@@ -24,7 +24,7 @@ import java.io.IOException;
 import javax.annotation.concurrent.NotThreadSafe;
 
 /**
- * A local packet writer that simply wrtier packets from a local file.
+ * A local packet writer that simply writes packets to a local file.
  */
 @NotThreadSafe
 public final class LocalPacketWriter implements PacketWriter {
@@ -112,7 +112,9 @@ public final class LocalPacketWriter implements PacketWriter {
     if (pos <= mPosReserved) {
       return;
     }
-    mBlockWorkerClient.requestSpace(mBlockId, Math.max(pos - mPosReserved, FILE_BUFFER_BYTES));
+    long toReserve = Math.max(pos - mPosReserved, FILE_BUFFER_BYTES);
+    mBlockWorkerClient.requestSpace(mBlockId, toReserve);
+    mPosReserved += toReserve;
   }
 }
 

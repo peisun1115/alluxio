@@ -134,7 +134,9 @@ public final class RPCProtoMessage extends RPCMessage {
     int length = in.readInt();
     byte[] serialized = new byte[length];
     in.readBytes(serialized);
-    in.retain();
+    // Preconditions.checkArgument(in.refCnt() == 1,
+    //    "Reference count of this bytebuf is %s (1 expected).", in.refCnt());
+    // in.retain();
     return new RPCProtoMessage(serialized, prototype, new DataNettyBufferV2(in));
   }
 

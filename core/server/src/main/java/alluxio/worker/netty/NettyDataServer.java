@@ -27,6 +27,8 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.ServerChannel;
+import io.netty.handler.logging.LogLevel;
+import io.netty.handler.logging.LoggingHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,6 +60,7 @@ public final class NettyDataServer implements DataServer {
   public NettyDataServer(final InetSocketAddress address, final AlluxioWorkerService worker) {
     mDataServerHandler = new DataServerHandler(Preconditions.checkNotNull(worker));
     mBootstrap = createBootstrap().childHandler(new PipelineHandler(worker, mDataServerHandler));
+        //.handler(new LoggingHandler(LogLevel.INFO));
 
     try {
       mChannelFuture = mBootstrap.bind(address).sync();

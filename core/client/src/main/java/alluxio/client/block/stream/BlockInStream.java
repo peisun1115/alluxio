@@ -128,6 +128,7 @@ public final class BlockInStream extends FilterInputStream implements BoundedStr
     }
   }
 
+  // TODO(peis): Use InputStream#available directly.
   @Override
   public long remaining() {
     return ((PacketInStream) in).remaining();

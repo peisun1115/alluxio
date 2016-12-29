@@ -11,6 +11,7 @@
 
 package alluxio.client.block.stream;
 
+import alluxio.Constants;
 import alluxio.Seekable;
 import alluxio.client.BoundedStream;
 import alluxio.client.PositionedReadable;
@@ -18,9 +19,11 @@ import alluxio.client.file.FileSystemContext;
 import alluxio.exception.PreconditionMessage;
 import alluxio.network.protocol.databuffer.DataBuffer;
 import alluxio.proto.dataserver.Protocol;
-import alluxio.worker.block.io.LocalFileBlockReader;
+import alluxio.util.io.BufferUtils;
 
 import com.google.common.base.Preconditions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -35,6 +38,7 @@ import javax.annotation.concurrent.NotThreadSafe;
 @NotThreadSafe
 public final class PacketInStream extends InputStream implements BoundedStream, Seekable,
     PositionedReadable {
+  private static final Logger LOG = LoggerFactory.getLogger(Constants.LOGGER_TYPE);
   /** The id of the block or UFS file to which this instream provides access. */
   private final long mId;
   /** The size in bytes of the block. */
@@ -51,7 +55,7 @@ public final class PacketInStream extends InputStream implements BoundedStream, 
   private boolean mClosed = false;
   private boolean mEOF = false;
 
-  public final byte[] mSingleByte = new byte[1];
+  private final byte[] mSingleByte = new byte[1];
 
   /**
    * Creates a {@link PacketInStream} to read from a local file.
@@ -64,8 +68,7 @@ public final class PacketInStream extends InputStream implements BoundedStream, 
    */
   public static PacketInStream createLocalPacketInstream(String path, long id, long length)
       throws IOException {
-    LocalFileBlockReader localFileBlockReader = new LocalFileBlockReader(path);
-    return new PacketInStream(new LocalFilePacketReader.Factory(localFileBlockReader), id, length);
+    return new PacketInStream(new LocalFilePacketReader.Factory(path), id, length);
   }
 
   /**
@@ -104,11 +107,13 @@ public final class PacketInStream extends InputStream implements BoundedStream, 
   @Override
   public int read() throws IOException {
     int bytesRead = read(mSingleByte);
-    Preconditions.checkState(bytesRead != 0);
     if (bytesRead == -1) {
       return -1;
     }
-    return (int) mSingleByte[0];
+    Preconditions.checkState(bytesRead == 1);
+    int ret = BufferUtils.byteToInt(mSingleByte[0]);
+    LOG.error("PEIS: Byte read: pos {}, byte {}.", mPos - 1, Integer.toHexString(ret));
+    return ret;
   }
 
   @Override
@@ -131,17 +136,21 @@ public final class PacketInStream extends InputStream implements BoundedStream, 
       mEOF = true;
     }
     if (mEOF) {
-      close();
+      closePacketReader();
       return -1;
     }
     int toRead = Math.min(len, mCurrentPacket.readableBytes());
     mCurrentPacket.readBytes(b, off, toRead);
+    for (int i = off; i < off + toRead; i++) {
+      LOG.error("PEIS: Byte read (array): pos {}, byte {}.", mPos + i, Integer.toHexString(b[i]));
+    }
     mPos += toRead;
     return toRead;
   }
 
   @Override
   public int positionedRead(long pos, byte[] b, int off, int len) throws IOException {
+    Preconditions.checkState(false);
     if (len == 0) {
       return 0;
     }
@@ -216,7 +225,7 @@ public final class PacketInStream extends InputStream implements BoundedStream, 
   }
 
   @Override
-  public void close() {
+  public void close() throws IOException {
     closePacketReader();
     mClosed = true;
   }
@@ -228,6 +237,7 @@ public final class PacketInStream extends InputStream implements BoundedStream, 
    */
   private void readPacket() throws IOException {
     if (mPacketReader == null) {
+      LOG.error("PEIS: creating packet reader {} {}!!!", mPos, mLength - mPos);
       mPacketReader = mPacketReaderFactory.create(mPos, mLength - mPos);
     }
 
@@ -243,14 +253,16 @@ public final class PacketInStream extends InputStream implements BoundedStream, 
   /**
    * Close the current packet reader.
    */
-  private void closePacketReader() {
-    if (mPacketReader != null) {
-      mPacketReader.close();
-    }
+  private void closePacketReader() throws IOException {
     if (mCurrentPacket != null) {
       mCurrentPacket.release();
       mCurrentPacket = null;
     }
+    if (mPacketReader != null) {
+      LOG.error("PEIS: closing packet reader!!!");
+      mPacketReader.close();
+    }
+
     mPacketReader = null;
   }
 

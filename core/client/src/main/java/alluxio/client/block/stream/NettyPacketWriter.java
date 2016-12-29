@@ -114,6 +114,7 @@ public final class NettyPacketWriter implements PacketWriter {
    */
   public NettyPacketWriter(FileSystemContext context, final InetSocketAddress address, long id,
       long length, long sessionId, Protocol.RequestType type) throws IOException {
+    Preconditions.checkState(false);
     mContext = context;
     mAddress = address;
     mSessionId = sessionId;

@@ -90,6 +90,7 @@ public final class BlockInStream extends FilterInputStream implements BoundedStr
         throw new IOException(e);
       }
     }
+//    return createRemoteBlockInStream(blockId, blockSize, workerNetAddress, context, options);
   }
 
   /**

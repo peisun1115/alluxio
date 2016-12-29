@@ -55,6 +55,7 @@ public final class CatCommand extends WithWildCardPathCommand {
     OpenFileOptions options = OpenFileOptions.defaults().setReadType(ReadType.NO_CACHE);
     byte[] buf = new byte[512];
     try (FileInStream is = mFileSystem.openFile(path, options)) {
+      is.seek(10);
       int read = is.read(buf);
       while (read != -1) {
         System.out.write(buf, 0, read);

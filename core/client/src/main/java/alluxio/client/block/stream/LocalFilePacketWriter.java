@@ -70,9 +70,11 @@ public final class LocalFilePacketWriter implements PacketWriter {
   public void writePacket(final ByteBuf buf) throws IOException {
     try {
       Preconditions.checkState(!mClosed, "PacketWriter is closed while writing packets.");
+      int sz = buf.readableBytes();
       ensureReserved(mPos + buf.readableBytes());
       mPos += buf.readableBytes();
-      buf.readBytes(mWriter.getChannel(), buf.readableBytes());
+      Preconditions.checkState(buf.readBytes(mWriter.getChannel(), buf.readableBytes()) == sz);
+      Preconditions.checkState(buf.readableBytes() == 0);
     } finally {
       buf.release();
     }

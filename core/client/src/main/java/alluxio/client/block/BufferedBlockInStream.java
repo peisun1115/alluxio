@@ -12,11 +12,14 @@
 package alluxio.client.block;
 
 import alluxio.Configuration;
+import alluxio.Constants;
 import alluxio.PropertyKey;
 import alluxio.exception.PreconditionMessage;
 import alluxio.util.io.BufferUtils;
 
 import com.google.common.base.Preconditions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -34,6 +37,7 @@ import javax.annotation.concurrent.NotThreadSafe;
  */
 @NotThreadSafe
 public abstract class BufferedBlockInStream extends BlockInStream {
+  private static final Logger LOG = LoggerFactory.getLogger(Constants.LOGGER_TYPE);
   /** Current position of the stream, relative to the start of the block. */
   private long mPos;
   /** Flag indicating if the buffer has valid data. */
@@ -88,7 +92,9 @@ public abstract class BufferedBlockInStream extends BlockInStream {
     }
     mPos++;
     mBlockIsRead = true;
-    return BufferUtils.byteToInt(mBuffer.get());
+    int ret = BufferUtils.byteToInt(mBuffer.get());
+    LOG.error("PEIS: Byte read: pos {}, byte {}.", mPos - 1, ret);
+    return ret;
   }
 
   @Override
@@ -111,6 +117,9 @@ public abstract class BufferedBlockInStream extends BlockInStream {
     int toRead = (int) Math.min(len, remaining());
     if (mBufferIsValid && mBuffer.remaining() >= toRead) { // data is fully contained in the buffer
       mBuffer.get(b, off, toRead);
+      for (int i = off; i < off + toRead; i++) {
+        LOG.error("PEIS: Byte read: pos {}, byte {}.", mPos + i, b[i]);
+      }
       mPos += toRead;
       mBlockIsRead = true;
       return toRead;
@@ -129,6 +138,9 @@ public abstract class BufferedBlockInStream extends BlockInStream {
     updateBuffer();
     mBuffer.get(b, off, toRead);
     mPos += toRead;
+    for (int i = off; i < off + toRead; i++) {
+      LOG.error("PEIS: Byte read: pos {}, byte {}.", mPos + i, b[i]);
+    }
     mBlockIsRead = true;
     return toRead;
   }

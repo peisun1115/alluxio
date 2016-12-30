@@ -111,9 +111,7 @@ public final class PacketInStream extends InputStream implements BoundedStream, 
       return -1;
     }
     Preconditions.checkState(bytesRead == 1);
-    int ret = BufferUtils.byteToInt(mSingleByte[0]);
-    LOG.error("PEIS: Byte read: pos {}, byte {}.", mPos - 1, Integer.toHexString(ret));
-    return ret;
+    return BufferUtils.byteToInt(mSingleByte[0]);
   }
 
   @Override
@@ -141,16 +139,12 @@ public final class PacketInStream extends InputStream implements BoundedStream, 
     }
     int toRead = Math.min(len, mCurrentPacket.readableBytes());
     mCurrentPacket.readBytes(b, off, toRead);
-    for (int i = off; i < off + toRead; i++) {
-      LOG.error("PEIS: Byte read (array): pos {}, byte {}.", mPos + i, Integer.toHexString(b[i]));
-    }
     mPos += toRead;
     return toRead;
   }
 
   @Override
   public int positionedRead(long pos, byte[] b, int off, int len) throws IOException {
-    Preconditions.checkState(false);
     if (len == 0) {
       return 0;
     }
@@ -237,7 +231,6 @@ public final class PacketInStream extends InputStream implements BoundedStream, 
    */
   private void readPacket() throws IOException {
     if (mPacketReader == null) {
-      LOG.error("PEIS: creating packet reader {} {}!!!", mPos, mLength - mPos);
       mPacketReader = mPacketReaderFactory.create(mPos, mLength - mPos);
     }
 
@@ -259,7 +252,6 @@ public final class PacketInStream extends InputStream implements BoundedStream, 
       mCurrentPacket = null;
     }
     if (mPacketReader != null) {
-      LOG.error("PEIS: closing packet reader!!!");
       mPacketReader.close();
     }
 

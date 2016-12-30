@@ -15,10 +15,9 @@ import alluxio.Configuration;
 import alluxio.Constants;
 import alluxio.PropertyKey;
 import alluxio.network.protocol.databuffer.DataBuffer;
-import alluxio.network.protocol.databuffer.DataNettyBufferV2;
+import alluxio.network.protocol.databuffer.DataByteBuffer;
 import alluxio.worker.block.io.LocalFileBlockReader;
 
-import io.netty.buffer.Unpooled;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,16 +56,12 @@ public final class LocalFilePacketReader implements PacketReader {
 
   @Override
   public DataBuffer readPacket() throws IOException {
-    LOG.error("PEIS: Read packet from local.");
     if (mPos >= mEnd) {
       return null;
     }
     ByteBuffer buffer = mReader.read(mPos, Math.min(LOCAL_READ_PACKET_SIZE, mEnd - mPos));
-    /**
     DataBuffer dataBuffer = new DataByteBuffer(buffer, buffer.remaining());
     mPos += dataBuffer.getLength();
-     */
-    DataBuffer dataBuffer = new DataNettyBufferV2(Unpooled.wrappedBuffer(buffer));
     return dataBuffer;
   }
 

@@ -34,6 +34,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
+import io.netty.util.ResourceLeakDetector;
 import io.netty.util.internal.chmv8.ConcurrentHashMapV8;
 
 import java.io.Closeable;
@@ -123,6 +124,7 @@ public final class FileSystemContext implements Closeable {
   public static FileSystemContext create(Subject subject) {
     FileSystemContext context = new FileSystemContext(subject);
     context.init();
+    ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID);
     return context;
   }
 

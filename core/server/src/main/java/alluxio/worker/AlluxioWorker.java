@@ -17,6 +17,7 @@ import alluxio.PropertyKey;
 import alluxio.RuntimeConstants;
 import alluxio.ServerUtils;
 
+import io.netty.util.ResourceLeakDetector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,7 +47,7 @@ public final class AlluxioWorker {
           + PropertyKey.MASTER_HOSTNAME.toString() + " in alluxio-site.properties.");
       System.exit(1);
     }
-
+    ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID);
     AlluxioWorkerService worker = AlluxioWorkerService.Factory.create();
     ServerUtils.run(worker, "Alluxio worker");
   }

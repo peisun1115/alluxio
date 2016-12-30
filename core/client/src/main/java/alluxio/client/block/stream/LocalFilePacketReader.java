@@ -12,10 +12,14 @@
 package alluxio.client.block.stream;
 
 import alluxio.Configuration;
+import alluxio.Constants;
 import alluxio.PropertyKey;
 import alluxio.network.protocol.databuffer.DataBuffer;
 import alluxio.network.protocol.databuffer.DataByteBuffer;
 import alluxio.worker.block.io.LocalFileBlockReader;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -27,6 +31,7 @@ import javax.annotation.concurrent.NotThreadSafe;
  */
 @NotThreadSafe
 public final class LocalFilePacketReader implements PacketReader {
+  private static final Logger LOG = LoggerFactory.getLogger(Constants.LOGGER_TYPE);
   private static final long LOCAL_READ_PACKET_SIZE =
       Configuration.getBytes(PropertyKey.USER_LOCAL_READER_PACKET_SIZE_BYTES);
 
@@ -79,7 +84,7 @@ public final class LocalFilePacketReader implements PacketReader {
     /**
      * Creates an instance of {@link Factory}.
      *
-     * @param path the local file block reader
+     * @param path the file path
      */
     public Factory(String path) {
       mPath = path;

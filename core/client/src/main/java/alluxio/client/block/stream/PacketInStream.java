@@ -11,6 +11,7 @@
 
 package alluxio.client.block.stream;
 
+import alluxio.Constants;
 import alluxio.Seekable;
 import alluxio.client.BoundedStream;
 import alluxio.client.PositionedReadable;
@@ -20,6 +21,8 @@ import alluxio.network.protocol.databuffer.DataBuffer;
 import alluxio.proto.dataserver.Protocol;
 
 import com.google.common.base.Preconditions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -34,6 +37,7 @@ import javax.annotation.concurrent.NotThreadSafe;
 @NotThreadSafe
 public final class PacketInStream extends InputStream implements BoundedStream, Seekable,
     PositionedReadable {
+  private static final Logger LOG = LoggerFactory.getLogger(Constants.LOGGER_TYPE);
   /** The id of the block or UFS file to which this instream provides access. */
   private final long mId;
   /** The size in bytes of the block. */

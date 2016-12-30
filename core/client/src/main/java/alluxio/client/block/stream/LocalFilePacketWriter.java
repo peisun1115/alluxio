@@ -71,10 +71,9 @@ public final class LocalFilePacketWriter implements PacketWriter {
     try {
       Preconditions.checkState(!mClosed, "PacketWriter is closed while writing packets.");
       int sz = buf.readableBytes();
-      ensureReserved(mPos + buf.readableBytes());
-      mPos += buf.readableBytes();
-      Preconditions.checkState(buf.readBytes(mWriter.getChannel(), buf.readableBytes()) == sz);
-      Preconditions.checkState(buf.readableBytes() == 0);
+      ensureReserved(mPos + sz);
+      mPos += sz;
+      Preconditions.checkState(buf.readBytes(mWriter.getChannel(), sz) == sz);
     } finally {
       buf.release();
     }

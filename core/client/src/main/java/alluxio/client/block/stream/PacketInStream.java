@@ -19,7 +19,6 @@ import alluxio.client.file.FileSystemContext;
 import alluxio.exception.PreconditionMessage;
 import alluxio.network.protocol.databuffer.DataBuffer;
 import alluxio.proto.dataserver.Protocol;
-import alluxio.util.io.BufferUtils;
 
 import com.google.common.base.Preconditions;
 import org.slf4j.Logger;
@@ -44,6 +43,8 @@ public final class PacketInStream extends InputStream implements BoundedStream, 
   /** The size in bytes of the block. */
   private final long mLength;
 
+  private final byte[] mSingleByte = new byte[1];
+
   /** Current position of the stream, relative to the start of the block. */
   private long mPos = 0;
   /** The current packet. */
@@ -54,8 +55,6 @@ public final class PacketInStream extends InputStream implements BoundedStream, 
 
   private boolean mClosed = false;
   private boolean mEOF = false;
-
-  private final byte[] mSingleByte = new byte[1];
 
   /**
    * Creates a {@link PacketInStream} to read from a local file.
@@ -111,7 +110,7 @@ public final class PacketInStream extends InputStream implements BoundedStream, 
       return -1;
     }
     Preconditions.checkState(bytesRead == 1);
-    return BufferUtils.byteToInt(mSingleByte[0]);
+    return (int) mSingleByte[0];
   }
 
   @Override
@@ -254,7 +253,6 @@ public final class PacketInStream extends InputStream implements BoundedStream, 
     if (mPacketReader != null) {
       mPacketReader.close();
     }
-
     mPacketReader = null;
   }
 

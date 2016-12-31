@@ -300,6 +300,7 @@ public final class NettyPacketReader implements PacketReader {
           assert dataBuffer.getNettyOutput() instanceof ByteBuf;
           buf = (ByteBuf) dataBuffer.getNettyOutput();
         }
+        LOG.error("PEIS: QUEUE SIZE: {}", mPackets.size());
         mPackets.offer(buf);
         mNotEmptyOrFailed.signal();
 

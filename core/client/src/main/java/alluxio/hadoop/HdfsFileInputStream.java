@@ -25,6 +25,7 @@ import alluxio.exception.ExceptionMessage;
 import alluxio.exception.FileDoesNotExistException;
 import alluxio.util.io.BufferUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.primitives.Ints;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem.Statistics;
@@ -158,6 +159,7 @@ public class HdfsFileInputStream extends InputStream implements Seekable, Positi
     if (mClosed) {
       throw new IOException("Cannot read from a closed stream.");
     }
+    Preconditions.checkNotNull(mAlluxioFileInputStream);
     if (mAlluxioFileInputStream != null) {
       try {
         int ret = mAlluxioFileInputStream.read();
@@ -170,6 +172,7 @@ public class HdfsFileInputStream extends InputStream implements Seekable, Positi
         LOG.error(e.getMessage(), e);
         mAlluxioFileInputStream.close();
         mAlluxioFileInputStream = null;
+        throw e;
       }
     }
     getHdfsInputStream();
@@ -186,6 +189,7 @@ public class HdfsFileInputStream extends InputStream implements Seekable, Positi
     if (mClosed) {
       throw new IOException("Cannot read from a closed stream.");
     }
+    Preconditions.checkNotNull(mAlluxioFileInputStream);
     if (mAlluxioFileInputStream != null) {
       try {
         int ret = mAlluxioFileInputStream.read(buffer, offset, length);
@@ -198,6 +202,7 @@ public class HdfsFileInputStream extends InputStream implements Seekable, Positi
         LOG.error(e.getMessage(), e);
         mAlluxioFileInputStream.close();
         mAlluxioFileInputStream = null;
+        throw e;
       }
     }
 
@@ -282,7 +287,9 @@ public class HdfsFileInputStream extends InputStream implements Seekable, Positi
         }
         return ret;
       } finally {
-        mAlluxioFileInputStream.seek(oldPos);
+        if (mAlluxioFileInputStream != null) {
+          mAlluxioFileInputStream.seek(oldPos);
+        }
       }
     }
 

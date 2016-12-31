@@ -25,6 +25,8 @@ import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.epoll.EpollChannelOption;
+import io.netty.channel.epoll.EpollMode;
 import io.netty.channel.socket.SocketChannel;
 
 import javax.annotation.concurrent.ThreadSafe;
@@ -69,6 +71,9 @@ public final class NettyClient {
     boot.option(ChannelOption.SO_KEEPALIVE, true);
     boot.option(ChannelOption.TCP_NODELAY, true);
     boot.option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT);
+    if (CHANNEL_TYPE == ChannelType.EPOLL) {
+      boot.option(EpollChannelOption.EPOLL_MODE, EpollMode.LEVEL_TRIGGERED);
+    }
 
     boot.handler(new ChannelInitializer<SocketChannel>() {
       @Override

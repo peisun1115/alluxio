@@ -85,7 +85,7 @@ public final class NettyPacketReaderTest {
 
   @Test(timeout = 1000 * 60)
   public void readFullFile() throws Exception {
-    long length = PACKET_SIZE * 160 + PACKET_SIZE / 3;
+    long length = PACKET_SIZE * 1024 + PACKET_SIZE / 3;
     try (PacketReader reader = create(0, length)) {
       Future<Long> checksum = sendReadResponses(mChannel, length, 0, length - 1);
 
@@ -97,7 +97,7 @@ public final class NettyPacketReaderTest {
 
   @Test(timeout = 1000 * 60)
   public void readPartialFile() throws Exception {
-    long length = PACKET_SIZE * 160 + PACKET_SIZE / 3;
+    long length = PACKET_SIZE * 1024 + PACKET_SIZE / 3;
     long offset = 10;
     long checksumStart = 100;
     long bytesToRead = length / 3;
@@ -114,7 +114,7 @@ public final class NettyPacketReaderTest {
 
   @Test(timeout = 1000 * 60)
   public void fileLengthUnknown() throws Exception {
-    long lengthActual = PACKET_SIZE * 160 + PACKET_SIZE / 3;
+    long lengthActual = PACKET_SIZE * 1024 + PACKET_SIZE / 3;
     long checksumStart = 100;
     long bytesToRead = lengthActual / 3;
 

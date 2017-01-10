@@ -37,10 +37,12 @@ import java.net.InetSocketAddress;
 import java.util.regex.Pattern;
 
 import javax.annotation.concurrent.ThreadSafe;
+import javax.security.auth.Subject;
 
 /**
  * The base class for clients.
  */
+// TODO(peis): Consolidate this to ThriftClientPool.
 @ThreadSafe
 public abstract class AbstractClient implements Client {
 
@@ -75,17 +77,21 @@ public abstract class AbstractClient implements Client {
   /** Handler to the transport provider according to the authentication type. */
   protected final TransportProvider mTransportProvider;
 
+  private final Subject mParentSubject;
+
   /**
    * Creates a new client base.
    *
+   * @param subject the parent subject, set to null if not present
    * @param address the address
    * @param mode the mode of the client for display
    */
-  public AbstractClient(InetSocketAddress address, String mode) {
+  public AbstractClient(Subject subject, InetSocketAddress address, String mode) {
     mAddress = Preconditions.checkNotNull(address);
     mMode = mode;
     mServiceVersion = Constants.UNKNOWN_SERVICE_VERSION;
     mTransportProvider = TransportProvider.Factory.create();
+    mParentSubject = subject;
   }
 
   /**
@@ -170,7 +176,7 @@ public abstract class AbstractClient implements Client {
           RuntimeConstants.VERSION, getServiceName(), mMode, mAddress);
 
       TProtocol binaryProtocol =
-          new TBinaryProtocol(mTransportProvider.getClientTransport(mAddress));
+          new TBinaryProtocol(mTransportProvider.getClientTransport(mParentSubject, mAddress));
       mProtocol = new TMultiplexedProtocol(binaryProtocol, getServiceName());
       try {
         mProtocol.getTransport().open();
@@ -180,7 +186,7 @@ public abstract class AbstractClient implements Client {
         checkVersion(getClient(), getServiceVersion());
         return;
       } catch (IOException e) {
-        if (FRAME_SIZE_EXCEPTION_PATTERN.matcher(e.getMessage()).find()) {
+        if (e.getMessage() != null && FRAME_SIZE_EXCEPTION_PATTERN.matcher(e.getMessage()).find()) {
           // See an error like "Frame size (67108864) larger than max length (16777216)!",
           // pointing to the helper page.
           String message = String.format("Failed to connect to %s %s @ %s: %s. "
@@ -194,6 +200,14 @@ public abstract class AbstractClient implements Client {
       } catch (TTransportException e) {
         LOG.error("Failed to connect (" + retry.getRetryCount() + ") to " + getServiceName() + " "
             + mMode + " @ " + mAddress + " : " + e.getMessage());
+        if (e.getCause() instanceof java.net.SocketTimeoutException) {
+          // Do not retry if socket timeout.
+          String message = "Thrift transport open times out. Please check whether the "
+              + "authentication types match between client and server. Note that NOSASL client "
+              + "is not able to connect to servers with SIMPLE security mode.";
+          throw new IOException(message, e);
+        }
+        // TODO(peis): Consider closing the connection here as well.
         if (!retry.attemptRetry()) {
           break;
         }
@@ -220,8 +234,6 @@ public abstract class AbstractClient implements Client {
   }
 
   /**
-   * Returns the connected status of the client.
-   *
    * @return true if this client is connected to the remote
    */
   public synchronized boolean isConnected() {
@@ -247,8 +259,6 @@ public abstract class AbstractClient implements Client {
   }
 
   /**
-   * Returns the {@link InetSocketAddress} of the remote.
-   *
    * @return the {@link InetSocketAddress} of the remote
    */
   protected synchronized InetSocketAddress getAddress() {
@@ -314,7 +324,7 @@ public abstract class AbstractClient implements Client {
         throw Throwables.propagate(AlluxioException.fromThrift(e));
       } catch (TException e) {
         LOG.error(e.getMessage(), e);
-        mConnected = false;
+        disconnect();
       }
     }
     throw new IOException("Failed after " + retry + " retries.");
@@ -345,7 +355,7 @@ public abstract class AbstractClient implements Client {
         throw new IOException(e);
       } catch (TException e) {
         LOG.error(e.getMessage(), e);
-        mConnected = false;
+        disconnect();
       }
     }
     throw new IOException("Failed after " + retry + " retries.");

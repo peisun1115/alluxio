@@ -14,7 +14,7 @@ package alluxio.security;
 import alluxio.LocalAlluxioClusterResource;
 import alluxio.PropertyKey;
 import alluxio.client.block.BlockWorkerClient;
-import alluxio.client.block.RetryHandlingBlockWorkerClient;
+import alluxio.client.file.FileSystemContext;
 import alluxio.client.util.ClientTestUtils;
 import alluxio.security.MasterClientAuthenticationIntegrationTest.NameMatchAuthenticationProvider;
 
@@ -27,8 +27,6 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 import java.io.IOException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * Tests RPC authentication between worker and its client, in four modes: NOSASL, SIMPLE, CUSTOM,
@@ -39,21 +37,18 @@ public final class BlockWorkerClientAuthenticationIntegrationTest {
   @Rule
   public LocalAlluxioClusterResource mLocalAlluxioClusterResource =
       new LocalAlluxioClusterResource.Builder().build();
-  private ExecutorService mExecutorService;
 
   @Rule
   public ExpectedException mThrown = ExpectedException.none();
 
   @Before
   public void before() throws Exception {
-    mExecutorService = Executors.newFixedThreadPool(2);
     clearLoginUser();
   }
 
   @After
   public void after() throws Exception {
     clearLoginUser();
-    mExecutorService.shutdownNow();
   }
 
   @Test
@@ -93,8 +88,8 @@ public final class BlockWorkerClientAuthenticationIntegrationTest {
     // Using no-alluxio as loginUser to connect to Worker, the IOException will be thrown
     LoginUserTestUtils.resetLoginUser("no-alluxio");
 
-    try (BlockWorkerClient blockWorkerClient = new RetryHandlingBlockWorkerClient(
-        mLocalAlluxioClusterResource.get().getWorkerAddress(), mExecutorService, (long) 1 /* fake
+    try (BlockWorkerClient blockWorkerClient = FileSystemContext.INSTANCE.createBlockWorkerClient(
+        mLocalAlluxioClusterResource.get().getWorkerAddress(), (long) 1 /* fake
         session id */)) {
       // Just to supress the "Empty try block" warning in CheckStyle.
       failedToConnect = false;
@@ -112,9 +107,9 @@ public final class BlockWorkerClientAuthenticationIntegrationTest {
    * Tests Alluxio Worker client connects or disconnects to the Worker.
    */
   private void authenticationOperationTest() throws Exception {
-    RetryHandlingBlockWorkerClient blockWorkerClient = new RetryHandlingBlockWorkerClient(
-        mLocalAlluxioClusterResource.get().getWorkerAddress(),
-        mExecutorService, (long) 1 /* fake session id */);
+    BlockWorkerClient blockWorkerClient = FileSystemContext.INSTANCE
+        .createBlockWorkerClient(mLocalAlluxioClusterResource.get().getWorkerAddress(), (long) 1
+                /* fake session id */);
 
     blockWorkerClient.close();
   }

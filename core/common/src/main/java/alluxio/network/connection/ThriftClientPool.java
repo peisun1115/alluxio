@@ -36,6 +36,7 @@ import java.util.regex.Pattern;
 
 import javax.annotation.concurrent.GuardedBy;
 import javax.annotation.concurrent.ThreadSafe;
+import javax.security.auth.Subject;
 
 /**
  * A pool to manage Alluxio thrift clients.
@@ -62,6 +63,7 @@ public abstract class ThriftClientPool<T extends AlluxioService.Client>
   private final long mServiceVersion;
   private final InetSocketAddress mAddress;
   private final long mGcThresholdMs;
+  private final Subject mParentSubject;
 
   private static final int THRIFT_CLIENT_POOL_GC_THREADPOOL_SIZE = 5;
   private static final ScheduledExecutorService GC_EXECUTOR =
@@ -86,6 +88,7 @@ public abstract class ThriftClientPool<T extends AlluxioService.Client>
   /**
    * Creates a thrift client pool instance with a minimum capacity of 1.
    *
+   * @param subject the parent subject, set to null if not present
    * @param serviceName the service name (e.g. BlockWorkerClient)
    * @param serviceVersion the service version
    * @param address the server address
@@ -93,23 +96,34 @@ public abstract class ThriftClientPool<T extends AlluxioService.Client>
    * @param gcThresholdMs when a channel is older than this threshold and the pool's capacity
    *        is above the minimum capacity (1), it is closed and removed from the pool.
    */
-  public ThriftClientPool(String serviceName, long serviceVersion, InetSocketAddress address,
-      int maxCapacity, long gcThresholdMs) {
+  public ThriftClientPool(Subject subject, String serviceName, long serviceVersion,
+      InetSocketAddress address, int maxCapacity, long gcThresholdMs) {
     super(Options.defaultOptions().setMaxCapacity(maxCapacity).setGcExecutor(GC_EXECUTOR));
     mTransportProvider = TransportProvider.Factory.create();
     mServiceName = serviceName;
     mServiceVersion = serviceVersion;
     mAddress = address;
     mGcThresholdMs = gcThresholdMs;
+    mParentSubject = subject;
   }
 
-  @Override
-  protected void closeResource(T client) {
+  /**
+   * A helper function to close thrift clients.
+   *
+   * @param client the thrift client to close
+   * @param <C> the thrift client type
+   */
+  public static <C extends AlluxioService.Client> void closeThriftClient(C client) {
     // Note that the input and output protocol is the same in Alluxio.
     TTransport transport = client.getOutputProtocol().getTransport();
     if (transport.isOpen()) {
       transport.close();
     }
+  }
+
+  @Override
+  protected void closeResource(T client) {
+    closeThriftClient(client);
   }
 
   @Override
@@ -125,7 +139,7 @@ public abstract class ThriftClientPool<T extends AlluxioService.Client>
    */
   @Override
   protected T createNewResource() throws IOException {
-    TTransport transport = mTransportProvider.getClientTransport(mAddress);
+    TTransport transport = mTransportProvider.getClientTransport(mParentSubject, mAddress);
     TProtocol binaryProtocol = new TBinaryProtocol(transport);
     T client = createThriftClient(new TMultiplexedProtocol(binaryProtocol, mServiceName));
 
@@ -144,6 +158,13 @@ public abstract class ThriftClientPool<T extends AlluxioService.Client>
         LOG.error(
             "Failed to connect (" + retry.getRetryCount() + ") to " + getServiceNameForLogging()
                 + " @ " + mAddress, e);
+        if (e.getCause() instanceof java.net.SocketTimeoutException) {
+          // Do not retry if socket timeout.
+          String message = "Thrift transport open times out. Please check whether the "
+              + "authentication types match between client and server. Note that NOSASL client "
+              + "is not able to connect to servers with SIMPLE security mode.";
+          throw new IOException(message, e);
+        }
         if (!retry.attemptRetry()) {
           throw new IOException(e);
         }
@@ -188,23 +209,22 @@ public abstract class ThriftClientPool<T extends AlluxioService.Client>
       }
     }
 
-    long serviceVersionFound = -1;
     try {
-      serviceVersionFound = client.getServiceVersion();
+      long serviceVersionFound = client.getServiceVersion();
       synchronized (this) {
         mServerVersionFound = serviceVersionFound;
         if (mServerVersionFound != mServiceVersion) {
           throw new IOException(ExceptionMessage.INCOMPATIBLE_VERSION
               .getMessage(mServiceName, mServiceVersion, mServerVersionFound));
         }
-        return;
       }
     } catch (TTransportException e) {
       closeResource(client);
       // The master branch of Apache Thrift provides a dedicated exception type for this
       // (CORRUPTED_DATA).
-      if (FRAME_SIZE_NEGATIVE_EXCEPTION_PATTERN.matcher(e.getMessage()).find()
-          || FRAME_SIZE_TOO_LARGE_EXCEPTION_PATTERN.matcher(e.getMessage()).find()) {
+      if (e.getMessage() != null && (
+          FRAME_SIZE_NEGATIVE_EXCEPTION_PATTERN.matcher(e.getMessage()).find()
+              || FRAME_SIZE_TOO_LARGE_EXCEPTION_PATTERN.matcher(e.getMessage()).find())) {
         // See an error like "Frame size (67108864) larger than max length (16777216)!",
         // pointing to the helper page.
         String message = String.format("Failed to connect to %s @ %s: %s. " + "This exception "

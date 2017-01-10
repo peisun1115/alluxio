@@ -16,18 +16,20 @@ import alluxio.Configuration;
 import alluxio.Constants;
 import alluxio.LocalAlluxioClusterResource;
 import alluxio.PropertyKey;
-import alluxio.client.ClientContext;
 import alluxio.client.file.FileSystem;
+import alluxio.client.file.FileSystemContext;
 import alluxio.client.file.URIStatus;
 import alluxio.exception.AlluxioException;
 import alluxio.exception.ExceptionMessage;
 import alluxio.util.io.BufferUtils;
 import alluxio.util.io.PathUtils;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -41,6 +43,8 @@ import java.util.List;
 /**
  * Integration tests for {@link KeyValueSystem}.
  */
+@Ignore("TODO(Bin): Clear the resources when done with tests. Run the following two tests together "
+    + "KeyValuePartitionIntegrationTest,KeyValueSystemIntegrationTest to reproduce.")
 public final class KeyValueSystemIntegrationTest {
   private static final int BLOCK_SIZE = 512 * Constants.MB;
   private static final String BASE_KEY = "base_key";
@@ -75,6 +79,13 @@ public final class KeyValueSystemIntegrationTest {
   @Before
   public void before() throws Exception {
     mStoreUri = new AlluxioURI(PathUtils.uniqPath());
+  }
+
+  @After
+  public void after() throws Exception {
+    mWriter = null;
+    mReader = null;
+    mStoreUri = null;
   }
 
   /**
@@ -252,13 +263,20 @@ public final class KeyValueSystemIntegrationTest {
 
     Configuration
         .set(PropertyKey.KEY_VALUE_PARTITION_SIZE_BYTES_MAX, String.valueOf(maxPartitionSize));
-    mWriter = sKeyValueSystem.createStore(mStoreUri);
-    byte[] key = BufferUtils.getIncreasingByteArray(0, keyLength);
-    byte[] value = BufferUtils.getIncreasingByteArray(0, valueLength);
+    try {
+      mWriter = sKeyValueSystem.createStore(mStoreUri);
+      byte[] key = BufferUtils.getIncreasingByteArray(0, keyLength);
+      byte[] value = BufferUtils.getIncreasingByteArray(0, valueLength);
 
-    mThrown.expect(IOException.class);
-    mThrown.expectMessage(ExceptionMessage.KEY_VALUE_TOO_LARGE.getMessage(keyLength, valueLength));
-    mWriter.put(key, value);
+      mThrown.expect(IOException.class);
+      mThrown
+          .expectMessage(ExceptionMessage.KEY_VALUE_TOO_LARGE.getMessage(keyLength, valueLength));
+      mWriter.put(key, value);
+    } finally {
+      if (mWriter != null) {
+        mWriter.close();
+      }
+    }
   }
 
   /**
@@ -267,14 +285,20 @@ public final class KeyValueSystemIntegrationTest {
    */
   @Test
   public void putKeyAlreadyExists() throws Exception {
-    mWriter = sKeyValueSystem.createStore(mStoreUri);
-    mWriter.put(KEY1, VALUE1);
+    try {
+      mWriter = sKeyValueSystem.createStore(mStoreUri);
+      mWriter.put(KEY1, VALUE1);
 
-    byte[] copyOfKey1 = Arrays.copyOf(KEY1, KEY1.length);
+      byte[] copyOfKey1 = Arrays.copyOf(KEY1, KEY1.length);
 
-    mThrown.expect(IOException.class);
-    mThrown.expectMessage(ExceptionMessage.KEY_ALREADY_EXISTS.getMessage());
-    mWriter.put(copyOfKey1, VALUE2);
+      mThrown.expect(IOException.class);
+      mThrown.expectMessage(ExceptionMessage.KEY_ALREADY_EXISTS.getMessage());
+      mWriter.put(copyOfKey1, VALUE2);
+    } finally {
+      if (mWriter != null) {
+        mWriter.close();
+      }
+    }
   }
 
   /**
@@ -307,7 +331,8 @@ public final class KeyValueSystemIntegrationTest {
   }
 
   private int getPartitionNumber(AlluxioURI storeUri) throws Exception {
-    try (KeyValueMasterClient client = new KeyValueMasterClient(ClientContext.getMasterAddress())) {
+    try (KeyValueMasterClient client = new KeyValueMasterClient(
+        FileSystemContext.INSTANCE.getMasterAddress())) {
       return client.getPartitionInfo(storeUri).size();
     }
   }
@@ -480,5 +505,14 @@ public final class KeyValueSystemIntegrationTest {
         testMergeStore(storeUri1, pairs1, storeUri2, pairs2);
       }
     }
+  }
+
+  /**
+   * Tests that the factory can create an instance of {@link KeyValueSystem}.
+   */
+  @Test
+  public void create() {
+    KeyValueSystem system = KeyValueSystem.Factory.create();
+    Assert.assertNotNull(system);
   }
 }

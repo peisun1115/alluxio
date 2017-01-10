@@ -32,9 +32,8 @@ import alluxio.job.Job;
 import alluxio.master.AbstractMaster;
 import alluxio.master.file.FileSystemMaster;
 import alluxio.master.file.options.CreateFileOptions;
-import alluxio.master.journal.Journal;
+import alluxio.master.journal.JournalFactory;
 import alluxio.master.journal.JournalOutputStream;
-import alluxio.master.journal.JournalProtoUtils;
 import alluxio.master.lineage.checkpoint.CheckpointPlan;
 import alluxio.master.lineage.checkpoint.CheckpointSchedulingExecutor;
 import alluxio.master.lineage.meta.Lineage;
@@ -45,17 +44,15 @@ import alluxio.master.lineage.recompute.RecomputeExecutor;
 import alluxio.master.lineage.recompute.RecomputePlanner;
 import alluxio.proto.journal.Journal.JournalEntry;
 import alluxio.proto.journal.Lineage.DeleteLineageEntry;
-import alluxio.proto.journal.Lineage.LineageEntry;
-import alluxio.proto.journal.Lineage.LineageIdGeneratorEntry;
 import alluxio.thrift.LineageMasterClientService;
 import alluxio.util.IdUtils;
-import alluxio.util.ThreadFactoryUtils;
-import alluxio.util.io.PathUtils;
+import alluxio.util.executor.ExecutorServiceFactories;
+import alluxio.util.executor.ExecutorServiceFactory;
 import alluxio.wire.FileInfo;
 import alluxio.wire.LineageInfo;
+import alluxio.wire.TtlAction;
 
 import com.google.common.base.Preconditions;
-import com.google.protobuf.Message;
 import org.apache.thrift.TProcessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,8 +62,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import javax.annotation.concurrent.NotThreadSafe;
 
@@ -83,36 +78,28 @@ public final class LineageMaster extends AbstractMaster {
   private final LineageIdGenerator mLineageIdGenerator;
 
   /**
-   * @param baseDirectory the base journal directory
-   * @return the journal directory for this master
+   * Creates a new instance of {@link LineageMaster}.
+   *
+   * @param fileSystemMaster the file system master
+   * @param journalFactory the factory for the journal to use for tracking master operations
    */
-  public static String getJournalDirectory(String baseDirectory) {
-    return PathUtils.concatPath(baseDirectory, Constants.LINEAGE_MASTER_NAME);
+  public LineageMaster(FileSystemMaster fileSystemMaster, JournalFactory journalFactory) {
+    this(fileSystemMaster, journalFactory, ExecutorServiceFactories
+        .fixedThreadPoolExecutorServiceFactory(Constants.LINEAGE_MASTER_NAME, 2));
   }
 
   /**
    * Creates a new instance of {@link LineageMaster}.
    *
    * @param fileSystemMaster the file system master
-   * @param journal the journal
+   * @param journalFactory the factory for the journal to use for tracking master operations
+   * @param executorServiceFactory a factory for creating the executor service to use for running
+   *        maintenance threads
    */
-  public LineageMaster(FileSystemMaster fileSystemMaster, Journal journal) {
-    this(fileSystemMaster, journal,
-        Executors.newFixedThreadPool(2, ThreadFactoryUtils.build("LineageMaster-%d", true)));
-  }
-
-  /**
-   * Creates a new instance of {@link LineageMaster}.
-   *
-   * @param fileSystemMaster the file system master
-   * @param journal the journal
-   * @param executorService the executor service to use for running maintenance threads; the
-   *        {@link LineageMaster} becomes the owner of the executorService and will shut it down
-   *        when the master stops
-   */
-  public LineageMaster(FileSystemMaster fileSystemMaster,
-      Journal journal, ExecutorService executorService) {
-    super(journal, new SystemClock(), executorService);
+  public LineageMaster(FileSystemMaster fileSystemMaster, JournalFactory journalFactory,
+      ExecutorServiceFactory executorServiceFactory) {
+    super(journalFactory.get(Constants.LINEAGE_MASTER_NAME), new SystemClock(),
+        executorServiceFactory);
 
     mFileSystemMaster = Preconditions.checkNotNull(fileSystemMaster);
     mLineageIdGenerator = new LineageIdGenerator();
@@ -134,15 +121,14 @@ public final class LineageMaster extends AbstractMaster {
 
   @Override
   public void processJournalEntry(JournalEntry entry) throws IOException {
-    Message innerEntry = JournalProtoUtils.unwrap(entry);
-    if (innerEntry instanceof LineageEntry) {
-      mLineageStore.addLineageFromJournal((LineageEntry) innerEntry);
-    } else if (innerEntry instanceof LineageIdGeneratorEntry) {
-      mLineageIdGenerator.initFromJournalEntry((LineageIdGeneratorEntry) innerEntry);
-    } else if (innerEntry instanceof DeleteLineageEntry) {
-      deleteLineageFromEntry((DeleteLineageEntry) innerEntry);
+    if (entry.hasLineage()) {
+      mLineageStore.addLineageFromJournal(entry.getLineage());
+    } else if (entry.hasLineageIdGenerator()) {
+      mLineageIdGenerator.initFromJournalEntry(entry.getLineageIdGenerator());
+    } else if (entry.hasDeleteLineage()) {
+      deleteLineageFromEntry(entry.getDeleteLineage());
     } else {
-      throw new IOException(ExceptionMessage.UNEXPECTED_JOURNAL_ENTRY.getMessage(innerEntry));
+      throw new IOException(ExceptionMessage.UNEXPECTED_JOURNAL_ENTRY.getMessage(entry));
     }
   }
 
@@ -275,13 +261,15 @@ public final class LineageMaster extends AbstractMaster {
    * @param path the path to the file
    * @param blockSizeBytes the block size
    * @param ttl the TTL
+   * @param ttlAction action to perform on ttl expiry
    * @return the id of the reinitialized file when the file is lost or not completed, -1 otherwise
    * @throws InvalidPathException the file path is invalid
    * @throws LineageDoesNotExistException when the file does not exist
    * @throws AccessControlException if permission checking fails
    * @throws FileDoesNotExistException if the path does not exist
    */
-  public synchronized long reinitializeFile(String path, long blockSizeBytes, long ttl)
+  public synchronized long reinitializeFile(String path, long blockSizeBytes, long ttl,
+      TtlAction ttlAction)
       throws InvalidPathException, LineageDoesNotExistException, AccessControlException,
       FileDoesNotExistException {
     long fileId = mFileSystemMaster.getFileId(new AlluxioURI(path));
@@ -290,7 +278,8 @@ public final class LineageMaster extends AbstractMaster {
       fileInfo = mFileSystemMaster.getFileInfo(fileId);
       if (!fileInfo.isCompleted() || mFileSystemMaster.getLostFiles().contains(fileId)) {
         LOG.info("Recreate the file {} with block size of {} bytes", path, blockSizeBytes);
-        return mFileSystemMaster.reinitializeFile(new AlluxioURI(path), blockSizeBytes, ttl);
+        return mFileSystemMaster.reinitializeFile(new AlluxioURI(path), blockSizeBytes, ttl,
+            ttlAction);
       }
     } catch (FileDoesNotExistException e) {
       throw new LineageDoesNotExistException(

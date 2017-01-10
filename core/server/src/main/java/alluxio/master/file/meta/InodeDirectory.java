@@ -18,8 +18,10 @@ import alluxio.collections.UniqueFieldIndex;
 import alluxio.master.file.options.CreateDirectoryOptions;
 import alluxio.proto.journal.File.InodeDirectoryEntry;
 import alluxio.proto.journal.Journal.JournalEntry;
+import alluxio.security.authorization.Mode;
 import alluxio.security.authorization.Permission;
 import alluxio.wire.FileInfo;
+import alluxio.wire.TtlAction;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -42,7 +44,7 @@ public final class InodeDirectory extends Inode<InodeDirectory> {
   };
 
   /** Use UniqueFieldIndex directly for name index rather than using IndexedSet. */
-  private FieldIndex<Inode<?>> mChildren = new UniqueFieldIndex<>(NAME_INDEX);
+  private final FieldIndex<Inode<?>> mChildren = new UniqueFieldIndex<>(NAME_INDEX);
 
   private boolean mMountPoint;
 
@@ -182,6 +184,7 @@ public final class InodeDirectory extends Inode<InodeDirectory> {
     ret.setPersisted(isPersisted());
     ret.setLastModificationTimeMs(getLastModificationTimeMs());
     ret.setTtl(Constants.NO_TTL);
+    ret.setTtlAction(TtlAction.DELETE);
     ret.setOwner(getOwner());
     ret.setGroup(getGroup());
     ret.setMode(getMode());
@@ -210,7 +213,7 @@ public final class InodeDirectory extends Inode<InodeDirectory> {
         .setParentId(entry.getParentId())
         .setPersistenceState(PersistenceState.valueOf(entry.getPersistenceState()))
         .setPinned(entry.getPinned())
-        .setLastModificationTimeMs(entry.getLastModificationTimeMs())
+        .setLastModificationTimeMs(entry.getLastModificationTimeMs(), true)
         .setPermission(permission)
         .setMountPoint(entry.getMountPoint())
         .setDirectChildrenLoaded(entry.getDirectChildrenLoaded());
@@ -227,7 +230,10 @@ public final class InodeDirectory extends Inode<InodeDirectory> {
    */
   public static InodeDirectory create(long id, long parentId, String name,
       CreateDirectoryOptions directoryOptions) {
-    Permission permission = new Permission(directoryOptions.getPermission()).applyDirectoryUMask();
+    Permission permission = new Permission(directoryOptions.getPermission());
+    if (directoryOptions.isDefaultMode()) {
+      permission.setMode(Mode.getDefault()).applyDirectoryUMask();
+    }
     return new InodeDirectory(id)
         .setParentId(parentId)
         .setName(name)

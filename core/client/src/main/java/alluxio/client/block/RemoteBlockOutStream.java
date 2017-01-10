@@ -11,12 +11,18 @@
 
 package alluxio.client.block;
 
+import alluxio.Constants;
 import alluxio.client.RemoteBlockWriter;
+import alluxio.client.file.FileSystemContext;
+import alluxio.client.file.options.OutStreamOptions;
 import alluxio.exception.AlluxioException;
 import alluxio.metrics.MetricsSystem;
 import alluxio.wire.WorkerNetAddress;
 
 import com.codahale.metrics.Counter;
+import com.google.common.io.Closer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
@@ -29,8 +35,11 @@ import javax.annotation.concurrent.ThreadSafe;
  */
 @NotThreadSafe
 public final class RemoteBlockOutStream extends BufferedBlockOutStream {
+  private static final Logger LOG = LoggerFactory.getLogger(Constants.LOGGER_TYPE);
+
   private final RemoteBlockWriter mRemoteWriter;
   private final BlockWorkerClient mBlockWorkerClient;
+  private final Closer mCloser;
 
   /**
    * Creates a new block output stream on a specific address.
@@ -38,21 +47,25 @@ public final class RemoteBlockOutStream extends BufferedBlockOutStream {
    * @param blockId the block id
    * @param blockSize the block size
    * @param address the address of the preferred worker
-   * @param blockStoreContext the block store context
+   * @param fileSystemContext the filesystem context
+   * @param options the options
    * @throws IOException if I/O error occurs
    */
   public RemoteBlockOutStream(long blockId,
       long blockSize,
       WorkerNetAddress address,
-      BlockStoreContext blockStoreContext) throws IOException {
-    super(blockId, blockSize, blockStoreContext);
-    mRemoteWriter = RemoteBlockWriter.Factory.create();
-    mBlockWorkerClient = mContext.acquireWorkerClient(address);
+      FileSystemContext fileSystemContext,
+      OutStreamOptions options) throws IOException {
+    super(blockId, blockSize, fileSystemContext);
+    mCloser = Closer.create();
     try {
+      mBlockWorkerClient = mCloser.register(mContext.createBlockWorkerClient(address));
+      mRemoteWriter = mCloser.register(RemoteBlockWriter.Factory.create(fileSystemContext));
+
       mRemoteWriter.open(mBlockWorkerClient.getDataServerAddress(), mBlockId,
           mBlockWorkerClient.getSessionId());
     } catch (IOException e) {
-      mContext.releaseWorkerClient(mBlockWorkerClient);
+      mCloser.close();
       throw e;
     }
   }
@@ -62,13 +75,13 @@ public final class RemoteBlockOutStream extends BufferedBlockOutStream {
     if (mClosed) {
       return;
     }
-    mRemoteWriter.close();
     try {
       mBlockWorkerClient.cancelBlock(mBlockId);
     } catch (AlluxioException e) {
-      throw new IOException(e);
+      throw mCloser.rethrow(new IOException(e));
     } finally {
-      releaseAndClose();
+      mClosed = true;
+      mCloser.close();
     }
   }
 
@@ -77,25 +90,22 @@ public final class RemoteBlockOutStream extends BufferedBlockOutStream {
     if (mClosed) {
       return;
     }
-    flush();
-    mRemoteWriter.close();
-    if (mFlushedBytes > 0) {
-      try {
+
+    try {
+      flush();
+      if (mFlushedBytes > 0) {
         mBlockWorkerClient.cacheBlock(mBlockId);
-      } catch (AlluxioException e) {
-        throw new IOException(e);
-      } finally {
-        releaseAndClose();
-      }
-      Metrics.BLOCKS_WRITTEN_REMOTE.inc();
-    } else {
-      try {
+        Metrics.BLOCKS_WRITTEN_REMOTE.inc();
+      } else {
         mBlockWorkerClient.cancelBlock(mBlockId);
-      } catch (AlluxioException e) {
-        throw new IOException(e);
-      } finally {
-        releaseAndClose();
       }
+    } catch (AlluxioException e) {
+      throw mCloser.rethrow(new IOException(e));
+    } catch (Throwable e) { // must catch Throwable
+      throw mCloser.rethrow(e); // IOException will be thrown as-is
+    } finally {
+      mClosed = true;
+      mCloser.close();
     }
   }
 
@@ -114,14 +124,6 @@ public final class RemoteBlockOutStream extends BufferedBlockOutStream {
     mRemoteWriter.write(b, off, len);
     mFlushedBytes += len;
     Metrics.BYTES_WRITTEN_REMOTE.inc(len);
-  }
-
-  /**
-   * Releases {@link #mBlockWorkerClient} and sets {@link #mClosed} to true.
-   */
-  private void releaseAndClose() {
-    mContext.releaseWorkerClient(mBlockWorkerClient);
-    mClosed = true;
   }
 
   /**

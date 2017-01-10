@@ -84,15 +84,12 @@ public final class FileSystemTestUtils {
    */
   public static void createByteFile(FileSystem fs, AlluxioURI fileURI,
       CreateFileOptions options, int len) throws IOException {
-    try {
-      FileOutStream os = fs.createFile(fileURI, options);
-
+    try (FileOutStream os = fs.createFile(fileURI, options)) {
       byte[] arr = new byte[len];
       for (int k = 0; k < len; k++) {
         arr[k] = (byte) k;
       }
       os.write(arr);
-      os.close();
     } catch (AlluxioException e) {
       throw new IOException(e.getMessage());
     }
@@ -147,7 +144,7 @@ public final class FileSystemTestUtils {
    * @return an {@link OpenFileOptions} object with a matching Alluxio storage type
    */
   public static OpenFileOptions toOpenFileOptions(CreateFileOptions op) {
-    if (op.getAlluxioStorageType().isStore()) {
+    if (op.getWriteType().getAlluxioStorageType().isStore()) {
       return OpenFileOptions.defaults().setReadType(ReadType.CACHE);
     }
     return OpenFileOptions.defaults().setReadType(ReadType.NO_CACHE);

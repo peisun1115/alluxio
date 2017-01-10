@@ -35,11 +35,25 @@ priority: 3
 
 {% include Common-Commands/copy-alluxio-env.md %}
 
-接着修改`alluxio-env.sh`文件，将底层存储系统的地址设置为HDFS namenode的地址（例如，若你的HDFS namenode是在本地默认端口运行，则该地址为`hdfs://localhost:9000`）。
+接着修改`conf/alluxio-site.properties`文件，将底层存储系统的地址设置为HDFS namenode的地址以及你想挂载到Alluxio根目录下的HDFS目录。例如，若你的HDFS namenode是在本地默认端口运行，并且HDFS的根目录已经被映射到Alluxio根目录，则该地址为`hdfs://localhost:9000`；若只有`/alluxio/data`这一个HDFS目录被映射到Alluxio根目录，则该地址为`hdfs://localhost:9000/alluxio/data`。
 
 {% include Configuring-Alluxio-with-HDFS/underfs-address.md %}
 
+## 使用HDFS namenode HA模式配置Alluxio
+
+如果HDFS的namenode以HA模式运行，那么应该正确配置Alluxio的服务端和客户端以访问HDFS。
+
+对于Alluxio服务器（master和worker节点），将hadoop安装目录下的`hdfs-site.xml`和`core-site.xml`文件拷贝到`${ALLUXIO_HOME}/conf`目录下。或者，你可以在`conf/alluxio-site.properties`文件中将`alluxio.underfs.hdfs.configuration`设置为hadoop属性文件`hdfs-site.xml`（或者`core-site.xml`）（确保所有的相关配置在文件中可用）。
+
+然后，如果你需要将HDFS的根目录映射到Alluxio，则将底层存储地址设为`hdfs://nameservice/`（`nameservice`是在`core-site.xml`文件中已配置的HDFS服务的名称），或者如果你仅仅需要把HDFS目录`/alluxio/data`映射到Alluxio，则将底层存储地址设置为`hdfs://nameservice/alluxio/data`。
+
+{% include Configuring-Alluxio-with-HDFS/underfs-address-ha.md %}
+
+接下来，对于Alluxio客户端，`alluxio.underfs.hdfs.configuration`也应该设置为hadoop属性文件`hdfs-site.xml`（或者`core-site.xml`）。
+
 # 使用HDFS在本地运行Alluxio
+
+在开始本步骤之前，请确保HDFS集群已经启动运行并且映射到Alluxio根目录下的HDFS目录已经存在。
 
 配置完成后，你可以在本地启动Alluxio，观察一切是否正常运行：
 
@@ -51,7 +65,7 @@ priority: 3
 
 {% include Common-Commands/runTests.md %}
 
-运行成功后，访问HDFS Web UI [http://localhost:50070](http://localhost:50070)，确认其中包含了由Alluxio创建的文件和目录。在该测试中，创建的文件名称应像这样：`/alluxio/data/default_tests_files/BasicFile_STORE_SYNC_PERSIST`。
+运行成功后，访问HDFS Web UI [http://localhost:50070](http://localhost:50070)，确认其中包含了由Alluxio创建的文件和目录。在该测试中，创建的文件名称应像这样：`/default_tests_files/BasicFile_STORE_SYNC_PERSIST`。
 
 运行以下命令停止Alluxio：
 

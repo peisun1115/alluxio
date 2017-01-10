@@ -45,9 +45,9 @@ import org.junit.Test;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Integration tests for {@link BlockWorkerClientServiceHandler}.
@@ -77,7 +77,7 @@ public class BlockServiceHandlerIntegrationTest {
     mBlockWorkerServiceHandler =
         mLocalAlluxioClusterResource.get().getWorker().getBlockWorker().getWorkerServiceHandler();
 
-    mBlockMasterClient = new RetryHandlingBlockMasterClient(
+    mBlockMasterClient = new RetryHandlingBlockMasterClient(null,
         new InetSocketAddress(mLocalAlluxioClusterResource.get().getHostname(),
             mLocalAlluxioClusterResource.get().getMasterRpcPort()));
   }
@@ -90,16 +90,17 @@ public class BlockServiceHandlerIntegrationTest {
   // Tests that caching a block successfully persists the block if the block exists
   @Test
   public void cacheBlock() throws Exception {
-    mFileSystem.createFile(new AlluxioURI("/testFile"));
+    mFileSystem.createFile(new AlluxioURI("/testFile")).close();
     URIStatus file = mFileSystem.getStatus(new AlluxioURI("/testFile"));
+    final int writeTier = Constants.FIRST_TIER;
 
     final int blockSize = (int) WORKER_CAPACITY_BYTES / 10;
     // Construct the block ids for the file.
     final long blockId0 = BlockId.createBlockId(BlockId.getContainerId(file.getFileId()), 0);
     final long blockId1 = BlockId.createBlockId(BlockId.getContainerId(file.getFileId()), 1);
 
-    String filename =
-        mBlockWorkerServiceHandler.requestBlockLocation(SESSION_ID, blockId0, blockSize);
+    String filename = mBlockWorkerServiceHandler.requestBlockLocation(SESSION_ID, blockId0,
+        blockSize, writeTier);
     createBlockFile(filename, blockSize);
     mBlockWorkerServiceHandler.cacheBlock(SESSION_ID, blockId0);
 
@@ -119,14 +120,15 @@ public class BlockServiceHandlerIntegrationTest {
   // Tests that cancelling a block will remove the temporary file
   @Test
   public void cancelBlock() throws Exception {
-    mFileSystem.createFile(new AlluxioURI("/testFile"));
+    mFileSystem.createFile(new AlluxioURI("/testFile")).close();
     URIStatus file = mFileSystem.getStatus(new AlluxioURI("/testFile"));
+    final int writeTier = Constants.FIRST_TIER;
 
     final int blockSize = (int) WORKER_CAPACITY_BYTES / 2;
     final long blockId = BlockId.createBlockId(BlockId.getContainerId(file.getFileId()), 0);
 
     String filename =
-        mBlockWorkerServiceHandler.requestBlockLocation(SESSION_ID, blockId, blockSize);
+        mBlockWorkerServiceHandler.requestBlockLocation(SESSION_ID, blockId, blockSize, writeTier);
     createBlockFile(filename, blockSize);
     mBlockWorkerServiceHandler.cancelBlock(SESSION_ID, blockId);
 
@@ -134,7 +136,7 @@ public class BlockServiceHandlerIntegrationTest {
     Assert.assertFalse(new File(filename).exists());
 
     // The master should not have recorded any used space after the block is cancelled
-    waitForHeartbeat();
+    HeartbeatScheduler.execute(HeartbeatContext.WORKER_BLOCK_SYNC);
     Assert.assertEquals(0, mBlockMasterClient.getUsedBytes());
   }
 
@@ -159,9 +161,10 @@ public class BlockServiceHandlerIntegrationTest {
     // The local path should exist
     Assert.assertNotNull(localPath);
 
-    UnderFileSystem ufs = UnderFileSystem.get(localPath);
+    UnderFileSystem ufs = UnderFileSystem.Factory.get(localPath);
     byte[] data = new byte[blockSize];
-    int bytesRead = ufs.open(localPath).read(data);
+    InputStream in = ufs.open(localPath);
+    int bytesRead = in.read(data);
 
     // The data in the local file should equal the data we wrote earlier
     Assert.assertEquals(blockSize, bytesRead);
@@ -173,7 +176,7 @@ public class BlockServiceHandlerIntegrationTest {
   // Tests that lock block returns error on failure
   @Test
   public void lockBlockFailure() throws Exception {
-    mFileSystem.createFile(new AlluxioURI("/testFile"));
+    mFileSystem.createFile(new AlluxioURI("/testFile")).close();
     URIStatus file = mFileSystem.getStatus(new AlluxioURI("/testFile"));
     final long blockId = BlockId.createBlockId(BlockId.getContainerId(file.getFileId()), 0);
 
@@ -211,7 +214,7 @@ public class BlockServiceHandlerIntegrationTest {
     AlluxioURI file3 = new AlluxioURI("/file3");
     FileSystemTestUtils.createByteFile(mFileSystem, file3, WriteType.MUST_CACHE, blockSize);
 
-    waitForHeartbeat();
+    HeartbeatScheduler.execute(HeartbeatContext.WORKER_BLOCK_SYNC);
 
     fileInfo1 = mFileSystem.getStatus(file1);
     fileInfo2 = mFileSystem.getStatus(file2);
@@ -230,7 +233,10 @@ public class BlockServiceHandlerIntegrationTest {
     final long blockId2 = 12346L;
     final int chunkSize = (int) WORKER_CAPACITY_BYTES / 10;
 
-    mBlockWorkerServiceHandler.requestBlockLocation(SESSION_ID, blockId1, chunkSize);
+    /* only a single tier, so SecondHighest still refers to the memory tier */
+    final int writeTier = Constants.SECOND_TIER;
+
+    mBlockWorkerServiceHandler.requestBlockLocation(SESSION_ID, blockId1, chunkSize, writeTier);
     boolean result = mBlockWorkerServiceHandler.requestSpace(SESSION_ID, blockId1, chunkSize);
 
     // Initial request and first additional request should succeed
@@ -254,7 +260,7 @@ public class BlockServiceHandlerIntegrationTest {
     Exception exception = null;
     try {
       mBlockWorkerServiceHandler.requestBlockLocation(SESSION_ID, blockId2,
-          WORKER_CAPACITY_BYTES + 1);
+          WORKER_CAPACITY_BYTES + 1, writeTier);
     } catch (AlluxioTException e) {
       exception = e;
     }
@@ -270,10 +276,13 @@ public class BlockServiceHandlerIntegrationTest {
     final long blockId1 = 12345L;
     final long blockId2 = 23456L;
 
+    /* only a single tier, so lowest still refers to the memory tier */
+    final int writeTier = Constants.LAST_TIER;
+
     String filePath1 =
-        mBlockWorkerServiceHandler.requestBlockLocation(userId1, blockId1, chunkSize);
+        mBlockWorkerServiceHandler.requestBlockLocation(userId1, blockId1, chunkSize, writeTier);
     String filePath2 =
-        mBlockWorkerServiceHandler.requestBlockLocation(userId2, blockId2, chunkSize);
+        mBlockWorkerServiceHandler.requestBlockLocation(userId2, blockId2, chunkSize, writeTier);
 
     // Initial requests should succeed
     Assert.assertTrue(filePath1 != null);
@@ -286,18 +295,10 @@ public class BlockServiceHandlerIntegrationTest {
 
   // Creates a block file and write an increasing byte array into it
   private void createBlockFile(String filename, int len) throws IOException, InvalidPathException {
-    UnderFileSystem ufs = UnderFileSystem.get(filename);
-    ufs.mkdirs(PathUtils.getParent(filename), true);
+    UnderFileSystem ufs = UnderFileSystem.Factory.get(filename);
+    ufs.mkdirs(PathUtils.getParent(filename));
     OutputStream out = ufs.create(filename);
     out.write(BufferUtils.getIncreasingByteArray(len), 0, len);
     out.close();
-  }
-
-  // Waits for a worker heartbeat to master to be processed
-  private void waitForHeartbeat() throws InterruptedException {
-    HeartbeatScheduler.await(HeartbeatContext.WORKER_BLOCK_SYNC, 5, TimeUnit.SECONDS);
-    HeartbeatScheduler.schedule(HeartbeatContext.WORKER_BLOCK_SYNC);
-    // Wait for the next heartbeat to be ready to guarantee that the previous heartbeat has finished
-    HeartbeatScheduler.await(HeartbeatContext.WORKER_BLOCK_SYNC, 5, TimeUnit.SECONDS);
   }
 }

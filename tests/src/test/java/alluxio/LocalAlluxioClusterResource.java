@@ -11,15 +11,15 @@
 
 package alluxio;
 
-import alluxio.exception.AlluxioException;
 import alluxio.master.LocalAlluxioCluster;
 import alluxio.metrics.MetricsSystem;
+import alluxio.security.LoginUserTestUtils;
+import alluxio.security.authentication.AuthenticatedClientUser;
 
 import org.junit.rules.TestRule;
 import org.junit.runner.Description;
 import org.junit.runners.model.Statement;
 
-import java.io.IOException;
 import java.lang.annotation.Annotation;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -126,7 +126,9 @@ public final class LocalAlluxioClusterResource implements TestRule {
   /**
    * Explicitly starts the {@link LocalAlluxioCluster}.
    */
-  public void start() throws IOException, AlluxioException {
+  public void start() throws Exception {
+    AuthenticatedClientUser.remove();
+    LoginUserTestUtils.resetLoginUser();
     // Init configuration for integration test
     mLocalAlluxioCluster.initConfiguration();
     // Overwrite the test configuration with test specific parameters

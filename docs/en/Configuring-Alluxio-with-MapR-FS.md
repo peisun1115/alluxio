@@ -44,13 +44,13 @@ MapR-FS. Here are some values of `hadoop.version` for different MapR distributio
 
 # Configuring Alluxio for MapR-FS
 
-Once you have compiled Alluxio with the appropriate `hadoop.version` for your MapR distribution, you have to configure
-Alluxio to recognize the MapR-FS scheme and URIs. Alluxio can use the HDFS client to access MapR-FS. In order to enable
-the HDFS client to access MapR-FS URIs, you have to add the URI prefix `maprfs:///` to the configuration variable
-`alluxio.underfs.hdfs.prefixes`.
+Once you have compiled Alluxio with the appropriate `hadoop.version` for your MapR distribution, you may have to configure
+Alluxio to recognize the MapR-FS scheme and URIs. Alluxio uses the HDFS client to access MapR-FS, and by default is already
+configured to do so. However, if the configuration has been changed, you can enable the HDFS client to access MapR-FS URIs
+by adding the URI prefix `maprfs:///` to the configuration variable `alluxio.underfs.hdfs.prefixes` like below:
 
 ```
-alluxio.underfs.hdfs.prefixes=hdfs://,glusterfs:///,maprfs:///
+alluxio.underfs.hdfs.prefixes=hdfs://,maprfs:///
 ```
 
 This configuration parameter should be set for all the Alluxio servers (masters, workers). Please read how to
@@ -60,16 +60,16 @@ This configuration parameter should be set for all the Alluxio servers (masters,
 
 This parameter should also be set any client that accesses Alluxio. This means the parameter should be set for any application
 (MapReduce, Spark, Flink, etc.) that accesses Alluxio. This can typically be done by adding
-`-Dalluxio.underfs.hdfs.prefixes=hdfs://,glusterfs:///,maprfs:///` to the command. For more information, please read
+`-Dalluxio.underfs.hdfs.prefixes=hdfs://,maprfs:///` to the command. For more information, please read
 about [configurating applications for Alluxio](Configuration-Settings.html#application-settings).
 
 # Configuring Alluxio to use MapR-FS as Under File System
 
 There are various ways to configure Alluxio to use MapR-FS as the Under File System. If you want to mount MapR-FS to the
-root of Alluxio, add the following to `alluxio-env.sh`:
+root of Alluxio, add the following to `conf/alluxio-site.properties`:
  
 ```
-ALLUXIO_UNDERFS_ADDRESS=maprfs:///<path in MapR-FS>/
+alluxio.underfs.address=maprfs:///<path in MapR-FS>/
 ```
 
 You can also mount a directory in MapR-FS to a directory in the Alluxio namespace.
@@ -86,6 +86,8 @@ After everything is configured, you can start up Alluxio locally to see that eve
 
 This should start one Alluxio master and one Alluxio worker locally. You can see the master UI at
 [http://localhost:19999](http://localhost:19999).
+
+After this succeeds, you can visit MapR-FS web UI to verify the files and directories created by Alluxio exist. For this test, you should see files named like: `/default_tests_files/Basic_CACHE_THROUGH`
 
 Next, you can run a simple example program:
 

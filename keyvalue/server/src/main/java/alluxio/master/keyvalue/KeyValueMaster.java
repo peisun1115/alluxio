@@ -25,7 +25,6 @@ import alluxio.master.file.FileSystemMaster;
 import alluxio.master.file.options.CreateDirectoryOptions;
 import alluxio.master.journal.Journal;
 import alluxio.master.journal.JournalOutputStream;
-import alluxio.master.journal.JournalProtoUtils;
 import alluxio.proto.journal.Journal.JournalEntry;
 import alluxio.proto.journal.KeyValue.CompletePartitionEntry;
 import alluxio.proto.journal.KeyValue.CompleteStoreEntry;
@@ -36,13 +35,12 @@ import alluxio.proto.journal.KeyValue.RenameStoreEntry;
 import alluxio.thrift.KeyValueMasterClientService;
 import alluxio.thrift.PartitionInfo;
 import alluxio.util.IdUtils;
-import alluxio.util.ThreadFactoryUtils;
+import alluxio.util.executor.ExecutorServiceFactories;
 import alluxio.util.io.PathUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.protobuf.ByteString;
-import com.google.protobuf.Message;
 import org.apache.thrift.TProcessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,7 +51,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.Executors;
 
 import javax.annotation.concurrent.ThreadSafe;
 
@@ -88,8 +85,8 @@ public final class KeyValueMaster extends AbstractMaster {
    */
   public KeyValueMaster(FileSystemMaster fileSystemMaster,
       Journal journal) {
-    super(journal, new SystemClock(),
-        Executors.newFixedThreadPool(2, ThreadFactoryUtils.build("KeyValueMaster-%d", true)));
+    super(journal, new SystemClock(), ExecutorServiceFactories
+        .fixedThreadPoolExecutorServiceFactory(Constants.KEY_VALUE_MASTER_NAME, 2));
     mFileSystemMaster = fileSystemMaster;
     mCompleteStoreToPartitions = new HashMap<>();
     mIncompleteStoreToPartitions = new HashMap<>();
@@ -110,22 +107,21 @@ public final class KeyValueMaster extends AbstractMaster {
 
   @Override
   public synchronized void processJournalEntry(JournalEntry entry) throws IOException {
-    Message innerEntry = JournalProtoUtils.unwrap(entry);
     try {
-      if (innerEntry instanceof CreateStoreEntry) {
-        createStoreFromEntry((CreateStoreEntry) innerEntry);
-      } else if (innerEntry instanceof CompletePartitionEntry) {
-        completePartitionFromEntry((CompletePartitionEntry) innerEntry);
-      } else if (innerEntry instanceof CompleteStoreEntry) {
-        completeStoreFromEntry((CompleteStoreEntry) innerEntry);
-      } else if (innerEntry instanceof DeleteStoreEntry) {
-        deleteStoreFromEntry((DeleteStoreEntry) innerEntry);
-      } else if (innerEntry instanceof RenameStoreEntry) {
-        renameStoreFromEntry((RenameStoreEntry) innerEntry);
-      } else if (innerEntry instanceof MergeStoreEntry) {
-        mergeStoreFromEntry((MergeStoreEntry) innerEntry);
+      if (entry.hasCreateStore()) {
+        createStoreFromEntry(entry.getCreateStore());
+      } else if (entry.hasCompletePartition()) {
+        completePartitionFromEntry(entry.getCompletePartition());
+      } else if (entry.hasCompleteStore()) {
+        completeStoreFromEntry(entry.getCompleteStore());
+      } else if (entry.hasDeleteStore()) {
+        deleteStoreFromEntry(entry.getDeleteStore());
+      } else if (entry.hasRenameStore()) {
+        renameStoreFromEntry(entry.getRenameStore());
+      } else if (entry.hasMergeStore()) {
+        mergeStoreFromEntry(entry.getMergeStore());
       } else {
-        throw new IOException(ExceptionMessage.UNEXPECTED_JOURNAL_ENTRY.getMessage(innerEntry));
+        throw new IOException(ExceptionMessage.UNEXPECTED_JOURNAL_ENTRY.getMessage(entry));
       }
     } catch (AlluxioException e) {
       throw new RuntimeException(e);

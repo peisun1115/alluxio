@@ -19,8 +19,10 @@ import alluxio.client.AlluxioStorageType;
 import alluxio.client.UnderStorageType;
 import alluxio.client.WriteType;
 import alluxio.client.file.policy.FileWriteLocationPolicy;
+import alluxio.security.authorization.Mode;
 import alluxio.security.authorization.Permission;
 import alluxio.util.CommonUtils;
+import alluxio.wire.TtlAction;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Throwables;
@@ -37,9 +39,12 @@ import javax.annotation.concurrent.NotThreadSafe;
 public final class OutStreamOptions {
   private long mBlockSizeBytes;
   private long mTtl;
+  private TtlAction mTtlAction;
   private FileWriteLocationPolicy mLocationPolicy;
+  private int mWriteTier;
   private WriteType mWriteType;
   private Permission mPermission;
+  private String mUfsPath;
 
   /**
    * @return the default {@link OutStreamOptions}
@@ -51,6 +56,8 @@ public final class OutStreamOptions {
   private OutStreamOptions() {
     mBlockSizeBytes = Configuration.getBytes(PropertyKey.USER_BLOCK_SIZE_BYTES_DEFAULT);
     mTtl = Constants.NO_TTL;
+    mTtlAction = TtlAction.DELETE;
+
     try {
       mLocationPolicy = CommonUtils.createNewClassInstance(
           Configuration.<FileWriteLocationPolicy>getClass(
@@ -58,6 +65,7 @@ public final class OutStreamOptions {
     } catch (Exception e) {
       throw Throwables.propagate(e);
     }
+    mWriteTier = Configuration.getInt(PropertyKey.USER_FILE_WRITE_TIER_DEFAULT);
     mWriteType = Configuration.getEnum(PropertyKey.USER_FILE_WRITE_TYPE_DEFAULT, WriteType.class);
     mPermission = Permission.defaults();
     try {
@@ -98,6 +106,13 @@ public final class OutStreamOptions {
   }
 
   /**
+   * @return the {@link TtlAction}
+   */
+  public TtlAction getTtlAction() {
+    return mTtlAction;
+  }
+
+  /**
    * @return the under storage type
    */
   public UnderStorageType getUnderStorageType() {
@@ -109,6 +124,27 @@ public final class OutStreamOptions {
    */
   public Permission getPermission() {
     return mPermission;
+  }
+
+  /**
+   * @return the ufs path
+   */
+  public String getUfsPath() {
+    return mUfsPath;
+  }
+
+  /**
+   * @return the write tier
+   */
+  public int getWriteTier() {
+    return mWriteTier;
+  }
+
+  /**
+   * @return the write type
+   */
+  public WriteType getWriteType() {
+    return mWriteType;
   }
 
   /**
@@ -136,11 +172,31 @@ public final class OutStreamOptions {
   }
 
   /**
+   * @param ttlAction the {@link TtlAction} to use
+   * @return the updated options object
+   */
+  public OutStreamOptions setTtlAction(TtlAction ttlAction) {
+    mTtlAction = ttlAction;
+    return this;
+  }
+
+  /**
    * @param locationPolicy the file write location policy
    * @return the updated options object
    */
   public OutStreamOptions setLocationPolicy(FileWriteLocationPolicy locationPolicy) {
     mLocationPolicy = locationPolicy;
+    return this;
+  }
+
+  /**
+   * Sets the write tier.
+   *
+   * @param writeTier the write tier to use for this operation
+   * @return the updated options object
+   */
+  public OutStreamOptions setWriteTier(int writeTier) {
+    mWriteTier = writeTier;
     return this;
   }
 
@@ -157,13 +213,36 @@ public final class OutStreamOptions {
   }
 
   /**
+   * @param ufsPath the ufs path
+   * @return the updated options object
+   */
+  public OutStreamOptions setUfsPath(String ufsPath) {
+    mUfsPath = ufsPath;
+    return this;
+  }
+
+  /**
    * Sets the {@link Permission}.
    *
    * @param perm the permission
    * @return the updated options object
    */
+  // TODO(binfan): remove or deprecate this method
   public OutStreamOptions setPermission(Permission perm) {
     mPermission = perm;
+    return this;
+  }
+
+  /**
+   * Sets the mode in {@link Permission}.
+   *
+   * @param mode the permission
+   * @return the updated options object
+   */
+  public OutStreamOptions setMode(Mode mode) {
+    if (mode != null) {
+      mPermission.setMode(mode);
+    }
     return this;
   }
 
@@ -178,14 +257,24 @@ public final class OutStreamOptions {
     OutStreamOptions that = (OutStreamOptions) o;
     return Objects.equal(mBlockSizeBytes, that.mBlockSizeBytes)
         && Objects.equal(mTtl, that.mTtl)
+        && Objects.equal(mTtlAction, that.mTtlAction)
         && Objects.equal(mLocationPolicy, that.mLocationPolicy)
+        && mWriteTier == that.mWriteTier
         && Objects.equal(mWriteType, that.mWriteType)
+        && Objects.equal(mUfsPath, that.mUfsPath)
         && Objects.equal(mPermission, that.mPermission);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mBlockSizeBytes, mTtl, mLocationPolicy, mWriteType, mPermission);
+    return Objects.hashCode(mBlockSizeBytes,
+        mTtl,
+        mTtlAction,
+        mLocationPolicy,
+        mWriteTier,
+        mWriteType,
+        mUfsPath,
+        mPermission);
   }
 
   @Override
@@ -193,9 +282,12 @@ public final class OutStreamOptions {
     return Objects.toStringHelper(this)
         .add("blockSizeBytes", mBlockSizeBytes)
         .add("ttl", mTtl)
+        .add("ttlAction", mTtlAction)
         .add("locationPolicy", mLocationPolicy)
+        .add("writeTier", mWriteTier)
         .add("writeType", mWriteType)
         .add("permission", mPermission)
+        .add("ufsPath", mUfsPath)
         .toString();
   }
 }

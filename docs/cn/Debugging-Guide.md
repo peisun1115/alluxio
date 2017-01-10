@@ -15,7 +15,7 @@ group: Resources
 ## Alluxio日志地址
 
 Alluxio运行过程中可产生master、worker和client日志，这些日志存储在`{ALLUXIO_HOME}/logs`文件夹中，日志名称分别为
-`master.log`,`master.out`, `worker.log`, `worker.out` 和`user.log`。
+`master.log`,`master.out`, `worker.log`, `worker.out` 和`user_${USER}.log`。
 
 master和worker日志对于理解Alluxio master节点和worker节点的运行过程是非常有帮助的，当Alluxio运行出现问题时，可以查阅日志发现问题产生原因。如果不清楚错误日志信息，可在[邮件列表](https://groups.google.com/forum/#!forum/alluxio-users)查找，错误日志信息有可能之前已经讨论过。
 
@@ -50,6 +50,74 @@ master和worker日志对于理解Alluxio master节点和worker节点的运行过
 - 请确定 AWS access keys 和 Key Pairs 已安装
 - 如果底层文件存储系统是S3，检查 `ufs.yml`文件中的S3 bucket名称是否为已存在的bucket的名称，不包括`s3://` 、`s3a://`或者`s3n://`前缀
 - 如果不能访问UI，检查安全组是否限制了端口19999
+
+## ALLuxio使用常见问题
+
+#### 问题：出现“No FileSystem for scheme: alluxio”这种错误信息是什么原因？
+
+解决办法：当你的应用（例如MapReduce、Spark）尝试以HDFS兼容文件系统接口访问Alluxio，而又无法解析`alluxio://`模式时会产生该异常。要确保HDFS配置文件`core-site.xml`（默认在hadoop安装目录，如果为Spark自定义了该文件则在`spark/conf/`目录下）包含以下配置：
+
+```xml
+<configuration>
+  <property>
+    <name>fs.alluxio.impl</name>
+    <value>alluxio.hadoop.FileSystem</value>
+  </property>
+</configuration>
+```
+
+#### 问题：出现“java.lang.RuntimeException: java.lang.ClassNotFoundException: Class alluxio.hadoop.FileSystem not found”这种错误信息是什么原因？
+
+解决办法：当你的应用（例如MapReduce、Spark）尝试以HDFS兼容文件系统接口访问Alluxio，并且`alluxio://`模式也已配置正确，但应用的classpath未包含Alluxio客户端jar包时会产生该异常。用户通常需要通过设置环境变量或者属性的方式将Alluxio客户端jar包添加到所有节点上的应用的classpath中，这取决于具体的计算框架。以下是一些示例：
+
+- 对于MapReduce应用，可以将客户端jar包添加到`$HADOOP_CLASSPATH`：
+
+```bash
+$ export HADOOP_CLASSPATH={{site.ALLUXIO_CLIENT_JAR_PATH}}:${HADOOP_CLASSPATH}
+```
+
+- 对于Spark应用，可以将客户端jar包添加到`$SPARK_CLASSPATH`：
+
+```bash
+$ export SPARK_CLASSPATH={{site.ALLUXIO_CLIENT_JAR_PATH}}:${SPARK_CLASSPATH}
+```
+
+除了上述方法，还可以将以下配置添加到`spark/conf/spark-defaults.conf`中：
+
+```bash
+spark.driver.extraClassPath {{site.ALLUXIO_CLIENT_JAR_PATH}}
+spark.executor.extraClassPath
+{{site.ALLUXIO_CLIENT_JAR_PATH}}
+```
+
+#### 问题: 出现类似如下的错误信息: "Frame size (67108864) larger than max length (16777216)",这种类型错误信息出现的原因是什么?
+
+解决办法: 多种可能的原因会导致这种错误信息的出现。
+
+- 请仔细检查Alluxio的master节点的端口(port)是否正确，Alluxio的master节点默认的监听端口号为19998。
+通常情况下master地址的端口号错误会导致这种错误提示的出现(例如端口号写成了19999,而19999是Alluxio的master节点的web用户界面的端口号)
+- 请确保Alluxio的master节点和client节点的安全设置保持一致.
+Alluxio通过配置`alluxio.security.authentication.type`来提供不同的用户身份验证(Security.html#authentication)的方法。
+如果客户端和服务器的这项配置属性不一致，这种错误将会发生。(例如，客户端的属性为默认值`NOSASL`,而服务器端设为`SIMPLE`)
+有关如何设定Alluxio的集群和应用的问题，用户请参照[Configuration-Settings](Configuration-Settings.html)
+- Spark调用Alluxio-1.3.0文件时报错，如果是直接下载编译好的alluxio文件进行安装的，一般会出现该错误。
+解决办法：需要Alluxio client需要在编译时指定Spark选项，具体参考[Running-Spark-on-Alluxio](Running-Spark-on-Alluxio.html)；
+编译好的依赖包也可以直接下载，下载地址：<a href="http://downloads.alluxio.org/downloads/files/1.3.0/alluxio-1.3.0-spark-client-jar-with-dependencies.jar"> 依赖包下载 </a>。
+
+#### 问题: 向Alluxio拷贝数据或者写数据时出现如下问题 "Failed to cache: Not enough space to store block on worker",为什么？
+
+解决办法: 这种错误说明alluxio空间不足，无法完成用户写请求。
+
+- 如果你使用`copyFromLocal`命令向Alluxio写数据，shell命令默认使用`LocalFirstPolicy`命令,并将数据存储到本地worker节点上(查看[location policy](File-System-API.html#location-policy))
+如果本地worker节点没有足够空间，你将会看到上述错误。
+你可以通过将策略修改为`RoundRobinPolicy`(如下所述)来将你的文件分散存储到不同worker节点上。
+
+```bash
+$ bin/alluxio fs -Dalluxio.user.file.write.location.policy.class=alluxio.client.file.policy.RoundRobinPolicy copyFromLocal foo /alluxio/path/foo
+```
+
+- 检查一下内存中是否有多余的文件并从内存中释放这些文件。查看[Command-Line-Interface](Command-Line-Interface.html)获取更多信息。
+- 通过改变`alluxio.worker.memory.size`属性值增加worker节点可用内存的容量，查看[Configuration](Configuration-Settings.html#common-configuration) 获取更多信息。
 
 ## Alluxio性能常见问题
 

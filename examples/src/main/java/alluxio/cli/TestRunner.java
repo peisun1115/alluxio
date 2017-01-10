@@ -12,10 +12,13 @@
 package alluxio.cli;
 
 import alluxio.AlluxioURI;
+import alluxio.Configuration;
+import alluxio.PropertyKey;
 import alluxio.RuntimeConstants;
 import alluxio.client.ReadType;
 import alluxio.client.WriteType;
 import alluxio.client.file.FileSystem;
+import alluxio.client.file.FileSystemContext;
 import alluxio.client.file.options.DeleteOptions;
 import alluxio.examples.BasicNonByteBufferOperations;
 import alluxio.examples.BasicOperations;
@@ -89,6 +92,10 @@ public final class TestRunner {
     }
     AlluxioURI masterLocation = new AlluxioURI(args[0]);
     AlluxioURI testDir = new AlluxioURI(TEST_PATH);
+    Configuration.set(PropertyKey.MASTER_HOSTNAME, masterLocation.getHost());
+    Configuration.set(PropertyKey.MASTER_RPC_PORT, Integer.toString(masterLocation.getPort()));
+    FileSystemContext.INSTANCE.reset();
+
     FileSystem fs = FileSystem.Factory.get();
     if (fs.exists(testDir)) {
       fs.delete(testDir, DeleteOptions.defaults().setRecursive(true));
@@ -146,11 +153,11 @@ public final class TestRunner {
     switch (opType) {
       case Basic:
         result =
-            CliUtils.runExample(new BasicOperations(masterLocation, filePath, readType, writeType));
+            CliUtils.runExample(new BasicOperations(filePath, readType, writeType));
         break;
       case BasicNonByteBuffer:
         result = CliUtils.runExample(
-            new BasicNonByteBufferOperations(masterLocation, filePath, readType, writeType, true,
+            new BasicNonByteBufferOperations(filePath, readType, writeType, true,
                 20));
         break;
       default:

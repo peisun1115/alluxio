@@ -23,6 +23,7 @@ import alluxio.master.journal.JournalTailerThread;
 import alluxio.master.journal.JournalWriter;
 import alluxio.master.journal.ReadWriteJournal;
 import alluxio.proto.journal.Journal.JournalEntry;
+import alluxio.util.executor.ExecutorServiceFactory;
 
 import com.google.common.base.Preconditions;
 import org.slf4j.Logger;
@@ -45,6 +46,8 @@ public abstract class AbstractMaster implements Master {
 
   private static final long SHUTDOWN_TIMEOUT_MS = 10000;
 
+  /** A factory for creating executor services when they are needed. */
+  private ExecutorServiceFactory mExecutorServiceFactory = null;
   /** The executor used for running maintenance threads for the master. */
   private ExecutorService mExecutorService = null;
   /** A handler to the journal for this master. */
@@ -64,14 +67,14 @@ public abstract class AbstractMaster implements Master {
   /**
    * @param journal the journal to use for tracking master operations
    * @param clock the Clock to use for determining the time
-   * @param executorService the executor service to use for running maintenance threads; the
-   *        {@link AbstractMaster} becomes the owner of the executorService and will shut it down
-   *        when the master stops
+   * @param executorServiceFactory a factory for creating the executor service to use for
+   *        running maintenance threads
    */
-  protected AbstractMaster(Journal journal, Clock clock, ExecutorService executorService) {
+  protected AbstractMaster(Journal journal, Clock clock,
+      ExecutorServiceFactory executorServiceFactory) {
     mJournal = Preconditions.checkNotNull(journal);
     mClock = Preconditions.checkNotNull(clock);
-    mExecutorService = Preconditions.checkNotNull(executorService);
+    mExecutorServiceFactory = Preconditions.checkNotNull(executorServiceFactory);
   }
 
   @Override
@@ -88,6 +91,8 @@ public abstract class AbstractMaster implements Master {
 
   @Override
   public void start(boolean isLeader) throws IOException {
+    Preconditions.checkState(mExecutorService == null);
+    mExecutorService = mExecutorServiceFactory.create();
     mIsLeader = isLeader;
     LOG.info("{}: Starting {} master.", getName(), mIsLeader ? "leader" : "standby");
     if (mIsLeader) {
@@ -97,15 +102,18 @@ public abstract class AbstractMaster implements Master {
       /**
        * The sequence for dealing with the journal before starting as the leader:
        *
-       * Phase 1. Mark all the logs as completed. Since this master is the leader, it is allowed to
+       * Phase 1. Recover from a backup checkpoint if the last startup failed while writing the
+       * checkpoint.
+       *
+       * Phase 2. Mark all the logs as completed. Since this master is the leader, it is allowed to
        * write the journal, so it can mark the current log as completed. After this step, the
        * current log file will not exist, and all logs will be complete.
        *
-       * Phase 2. Reconstruct the state from the journal. This uses the JournalTailer to process all
+       * Phase 3. Reconstruct the state from the journal. This uses the JournalTailer to process all
        * of the checkpoint and the complete log files. Since all logs are complete, after this step,
        * the master will reflect the state of all of the journal entries.
        *
-       * Phase 3. Write out the checkpoint file. Since this master is completely up-to-date, it
+       * Phase 4. Write out the checkpoint file. Since this master is completely up-to-date, it
        * writes out the checkpoint file. When the checkpoint file is closed, it will then delete the
        * complete log files.
        *
@@ -113,11 +121,14 @@ public abstract class AbstractMaster implements Master {
        * concurrent access to the master during these phases.
        */
 
-      // Phase 1: Mark all logs as complete, including the current log. After this call, the current
+      // Phase 1: Recover from a backup checkpoint if necessary.
+      mJournalWriter.recoverCheckpoint();
+
+      // Phase 2: Mark all logs as complete, including the current log. After this call, the current
       // log should not exist, and all the log files will be complete.
       mJournalWriter.completeAllLogs();
 
-      // Phase 2: Replay all the state of the checkpoint and the completed log files.
+      // Phase 3: Replay all the state of the checkpoint and the completed log files.
       JournalTailer catchupTailer;
       if (mStandbyJournalTailer != null && mStandbyJournalTailer.getLatestJournalTailer() != null
           && mStandbyJournalTailer.getLatestJournalTailer().isValid()) {
@@ -141,7 +152,7 @@ public abstract class AbstractMaster implements Master {
       }
       long latestSequenceNumber = catchupTailer.getLatestSequenceNumber();
 
-      // Phase 3: initialize the journal and write out the checkpoint file (the state of all
+      // Phase 4: initialize the journal and write out the checkpoint file (the state of all
       // completed logs).
       JournalOutputStream checkpointStream =
           mJournalWriter.getCheckpointOutputStream(latestSequenceNumber);
@@ -174,21 +185,27 @@ public abstract class AbstractMaster implements Master {
       }
     }
     // Shut down the executor service, interrupting any running threads.
-    mExecutorService.shutdownNow();
-    String awaitFailureMessage =
-        "waiting for {} executor service to shut down. Daemons may still be running";
-    try {
-      if (!mExecutorService.awaitTermination(SHUTDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-        LOG.warn("Timed out " + awaitFailureMessage, this.getClass().getSimpleName());
+    if (mExecutorService != null) {
+      try {
+        mExecutorService.shutdownNow();
+        String awaitFailureMessage =
+            "waiting for {} executor service to shut down. Daemons may still be running";
+        try {
+          if (!mExecutorService.awaitTermination(SHUTDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+            LOG.warn("Timed out " + awaitFailureMessage, this.getClass().getSimpleName());
+          }
+        } catch (InterruptedException e) {
+          LOG.warn("Interrupted while " + awaitFailureMessage, this.getClass().getSimpleName());
+        }
+      } finally {
+        mExecutorService = null;
       }
-    } catch (InterruptedException e) {
-      LOG.warn("Interrupted while " + awaitFailureMessage, this.getClass().getSimpleName());
     }
   }
 
   @Override
-  public void upgradeToReadWriteJournal(ReadWriteJournal journal) {
-    mJournal = Preconditions.checkNotNull(journal);
+  public void transitionToLeader() {
+    mJournal = new ReadWriteJournal(mJournal.getDirectory());
   }
 
   /**

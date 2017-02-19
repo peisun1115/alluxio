@@ -24,6 +24,7 @@ import alluxio.client.PositionedReadable;
 import alluxio.client.block.AlluxioBlockStore;
 import alluxio.client.block.LocalBlockInStream;
 import alluxio.client.block.RemoteBlockInStream;
+import alluxio.client.block.StreamFactory;
 import alluxio.client.block.UnderStoreBlockInStream;
 import alluxio.client.block.UnderStoreBlockInStream.UnderStoreStreamFactory;
 import alluxio.client.file.options.InStreamOptions;
@@ -35,6 +36,7 @@ import alluxio.exception.BlockDoesNotExistException;
 import alluxio.exception.InvalidWorkerStateException;
 import alluxio.exception.PreconditionMessage;
 import alluxio.master.block.BlockId;
+import alluxio.wire.WorkerInfo;
 import alluxio.wire.WorkerNetAddress;
 
 import com.google.common.base.Preconditions;
@@ -44,6 +46,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.List;
 
 import javax.annotation.concurrent.NotThreadSafe;
 
@@ -339,19 +342,26 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
    * @return the {@link InputStream} for the UFS
    * @throws IOException if the stream cannot be created
    */
-  protected InputStream createUnderStoreBlockInStream(long blockStart, long length, String path)
-      throws IOException {
-    return new UnderStoreBlockInStream(mContext, blockStart, length, mBlockSize,
-        getUnderStoreStreamFactory(path, mContext));
+  protected InputStream createUnderStoreBlockInStream(long blockId, long blockStart, long length,
+      String path) throws IOException {
+    if (Configuration.getBoolean(PropertyKey.USER_UFS_DELEGATION_ENABLED)) {
+      try {
+        WorkerNetAddress address =
+            mLocationPolicy.getWorkerForNextBlock(mBlockStore.getWorkerInfoList(), blockId, length);
+        return StreamFactory
+            .createUfsBlockInStream(mContext, path, blockId, length, blockStart, address,
+                mInStreamOptions);
+      } catch (AlluxioException e) {
+        throw new IOException(e);
+      }
+    } else {
+      return new UnderStoreBlockInStream(mContext, blockStart, length, mBlockSize,
+          getUnderStoreStreamFactory(path));
+    }
   }
 
-  protected UnderStoreStreamFactory getUnderStoreStreamFactory(String path, FileSystemContext
-      context) throws IOException {
-    if (Configuration.getBoolean(PropertyKey.USER_UFS_DELEGATION_ENABLED)) {
-      return new DelegatedUnderStoreStreamFactory(context, path);
-    } else {
-      return new DirectUnderStoreStreamFactory(path);
-    }
+  protected UnderStoreStreamFactory getUnderStoreStreamFactory(String path) throws IOException {
+    return new DirectUnderStoreStreamFactory(path);
   }
 
   /**
@@ -541,7 +551,7 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
 
     try {
       WorkerNetAddress address = mLocationPolicy.getWorkerForNextBlock(
-          mBlockStore.getWorkerInfoList(), getBlockSizeAllocation(mPos));
+          mBlockStore.getWorkerInfoList(), blockId, getBlockSizeAllocation(mPos));
       // If we reach here, we need to cache.
       mCurrentCacheStream =
           mBlockStore.getOutStream(blockId, getBlockSize(mPos), address, mOutStreamOptions);
@@ -600,7 +610,7 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
         throw e;
       }
       long blockStart = BlockId.getSequenceNumber(blockId) * mBlockSize;
-      return createUnderStoreBlockInStream(blockStart, getBlockSize(blockStart),
+      return createUnderStoreBlockInStream(blockId, blockStart, getBlockSize(blockStart),
           mStatus.getUfsPath());
     }
   }

@@ -96,6 +96,15 @@ public enum ExceptionMessage {
       "Temp blockId {0,number,#} is not available, because it is already committed"),
   TEMP_BLOCK_ID_EXISTS("Temp blockId {0,number,#} is not available, because it already exists"),
 
+  // ufsBlockStore
+  UFS_BLOCK_ALREADY_EXISTS_FOR_SESSION(
+      "UFS block {0,number,#} from UFS file {1} exists for session {2,number,#}"),
+  UFS_BLOCK_ACCESS_TOKEN_UNAVAILABLE(
+      "Failed to acquire a access token ({number,#} active) for the UFS block {1,number,#} "
+          + "(filename: {2})."),
+  UFS_BLOCK_DOES_NOT_EXIST_FOR_SESSION(
+      "UFS block {0,number,#} does not exist for session {2,number,#}"),
+
   // journal
   JOURNAL_WRITE_AFTER_CLOSE("Cannot write entry after closing the stream"),
   UNEXPECTED_JOURNAL_ENTRY("Unexpected entry in journal: {0}"),
@@ -112,6 +121,11 @@ public enum ExceptionMessage {
   PARENT_CREATION_FAILED("Unable to create parent directories for path {0}"),
 
   // file system master
+  CANNOT_FREE_NON_EMPTY_DIR("Cannot free directory {0} which is not empty. Please set "
+      + "the \"recursive\" flag of free operation to true"),
+  CANNOT_FREE_NON_PERSISTED_FILE("Cannot free file {0} which is not persisted"),
+  CANNOT_FREE_PINNED_FILE("Cannot free file {0} which is pinned. Please unpin it first or"
+      + " set the \"forced\" flag of free operation to true"),
   INODE_DOES_NOT_EXIST("inodeId {0,number,#} does not exist"),
   INODE_DOES_NOT_EXIST_RETRIES("inodeId {0,number,#} does not exist; too many retries"),
   NOT_MUTABLE_INODE_PATH("Not a MutableLockedInodePath: {0}"),

@@ -36,7 +36,8 @@ public enum PropertyKey {
   SITE_CONF_DIR(Name.SITE_CONF_DIR, "${user.home}/.alluxio/,/etc/alluxio/"),
   TEST_MODE(Name.TEST_MODE, false),
   VERSION(Name.VERSION, ProjectConstants.VERSION),
-  WEB_RESOURCES(Name.WEB_RESOURCES, String.format("${%s}/core/server/src/main/webapp", Name.HOME)),
+  WEB_RESOURCES(Name.WEB_RESOURCES,
+      String.format("${%s}/core/server/common/src/main/webapp", Name.HOME)),
   WEB_THREADS(Name.WEB_THREADS, 1),
   WORK_DIR(Name.WORK_DIR, String.format("${%s}", Name.HOME)),
   ZOOKEEPER_ADDRESS(Name.ZOOKEEPER_ADDRESS, null),
@@ -121,6 +122,7 @@ public enum PropertyKey {
   MASTER_HEARTBEAT_INTERVAL_MS(Name.MASTER_HEARTBEAT_INTERVAL_MS, 1000),
   MASTER_HOSTNAME(Name.MASTER_HOSTNAME, null),
   MASTER_JOURNAL_FLUSH_BATCH_TIME_MS(Name.MASTER_JOURNAL_FLUSH_BATCH_TIME_MS, 5),
+  MASTER_JOURNAL_FLUSH_TIMEOUT_MS(Name.MASTER_JOURNAL_FLUSH_TIMEOUT_MS, 300000),
   MASTER_JOURNAL_FOLDER(Name.MASTER_JOURNAL_FOLDER, String.format("${%s}/journal", Name.WORK_DIR)),
   MASTER_JOURNAL_FORMATTER_CLASS(Name.MASTER_JOURNAL_FORMATTER_CLASS,
       "alluxio.master.journal.ProtoBufJournalFormatter"),
@@ -270,6 +272,8 @@ public enum PropertyKey {
       Name.USER_FILE_WORKER_CLIENT_POOL_GC_THRESHOLD_MS, 300 * Constants.SECOND_MS),
   USER_FILE_WRITE_LOCATION_POLICY(Name.USER_FILE_WRITE_LOCATION_POLICY,
       "alluxio.client.file.policy.LocalFirstPolicy"),
+  USER_FILE_WRITE_AVOID_EVICTION_POLICY_RESERVED_BYTES(
+      Name.USER_FILE_WRITE_AVOID_EVICTION_POLICY_RESERVED_BYTES, "0MB"),
   USER_FILE_WRITE_TYPE_DEFAULT(Name.USER_FILE_WRITE_TYPE_DEFAULT, "MUST_CACHE"),
   USER_FILE_WRITE_TIER_DEFAULT(Name.USER_FILE_WRITE_TIER_DEFAULT, Constants.FIRST_TIER),
   USER_HEARTBEAT_INTERVAL_MS(Name.USER_HEARTBEAT_INTERVAL_MS, 1000),
@@ -300,6 +304,8 @@ public enum PropertyKey {
   // Deprecated. It will be removed in 2.0.0.
   USER_UFS_FILE_WRITER_CLASS(Name.USER_UFS_FILE_WRITER_CLASS,
       "alluxio.client.netty.NettyUnderFileSystemFileWriter"),
+  USER_UFS_BLOCK_MAX_READ_CONCURRENCY_DEFAULT(Name.USER_UFS_BLOCK_MAX_READ_CONCURRENCY_DEFAULT, 5),
+  USER_UFS_BLOCK_OPEN_TIMEOUT_MS(Name.USER_UFS_BLOCK_OPEN_TIMEOUT_MS, 300000),
   USER_LOCAL_READER_PACKET_SIZE_BYTES(Name.USER_LOCAL_READER_PACKET_SIZE_BYTES, "8MB"),
   USER_LOCAL_WRITER_PACKET_SIZE_BYTES(Name.USER_LOCAL_WRITER_PACKET_SIZE_BYTES, "64KB"),
   USER_PACKET_STREAMING_ENABLED(Name.USER_PACKET_STREAMING_ENABLED, false),
@@ -509,6 +515,8 @@ public enum PropertyKey {
     public static final String MASTER_HOSTNAME = "alluxio.master.hostname";
     public static final String MASTER_JOURNAL_FLUSH_BATCH_TIME_MS =
         "alluxio.master.journal.flush.batch.time.ms";
+    public static final String MASTER_JOURNAL_FLUSH_TIMEOUT_MS =
+        "alluxio.master.journal.flush.timeout.ms";
     public static final String MASTER_JOURNAL_FOLDER = "alluxio.master.journal.folder";
     public static final String MASTER_JOURNAL_FORMATTER_CLASS =
         "alluxio.master.journal.formatter.class";
@@ -710,6 +718,8 @@ public enum PropertyKey {
         "alluxio.user.file.worker.client.pool.gc.threshold.ms";
     public static final String USER_FILE_WRITE_LOCATION_POLICY =
         "alluxio.user.file.write.location.policy.class";
+    public static final String USER_FILE_WRITE_AVOID_EVICTION_POLICY_RESERVED_BYTES =
+        "alluxio.user.file.write.avoid.eviction.policy.reserved.size.bytes";
     public static final String USER_FILE_WRITE_TYPE_DEFAULT = "alluxio.user.file.writetype.default";
     public static final String USER_FILE_WRITE_TIER_DEFAULT =
         "alluxio.user.file.write.tier.default";
@@ -745,6 +755,11 @@ public enum PropertyKey {
         "alluxio.user.ufs.file.reader.class";
     public static final String USER_UFS_FILE_WRITER_CLASS =
         "alluxio.user.ufs.file.writer.class";
+    public static final String USER_UFS_BLOCK_MAX_READ_CONCURRENCY_DEFAULT =
+        "alluxio.user.ufs.block.max.read.concurrency.default";
+    public static final String USER_UFS_BLOCK_OPEN_TIMEOUT_MS =
+        "alluxio.user.ufs.block.open.timeout.ms";
+
     public static final String USER_LOCAL_READER_PACKET_SIZE_BYTES =
         "alluxio.user.local.reader.packet.size.bytes";
     public static final String USER_LOCAL_WRITER_PACKET_SIZE_BYTES =

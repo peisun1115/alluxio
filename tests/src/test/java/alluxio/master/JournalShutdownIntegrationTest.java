@@ -109,7 +109,7 @@ public class JournalShutdownIntegrationTest {
     runCreateFileThread(cluster.getClient());
     // Kill the leader one by one.
     for (int kills = 0; kills < TEST_NUM_MASTERS; kills++) {
-      cluster.waitForNewMaster(60 * Constants.SECOND_MS);
+      cluster.waitForNewMaster(120 * Constants.SECOND_MS);
       Assert.assertTrue(cluster.stopLeader());
     }
     cluster.stopFS();
@@ -192,11 +192,22 @@ public class JournalShutdownIntegrationTest {
     private final int mOpType; // 0: create file
     private final FileSystem mFileSystem;
 
+    /**
+     * Constructs the client thread.
+     *
+     * @param opType the create operation type
+     * @param fs a file system client to use for creating files
+     */
     public ClientThread(int opType, FileSystem fs) {
       mOpType = opType;
       mFileSystem = fs;
     }
 
+    /**
+     * Gets the number of files which are successfully created.
+     *
+     * @return the number of files successfully created
+     */
     public int getSuccessNum() {
       return mSuccessNum;
     }

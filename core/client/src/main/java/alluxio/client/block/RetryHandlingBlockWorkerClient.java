@@ -16,6 +16,7 @@ import alluxio.Configuration;
 import alluxio.Constants;
 import alluxio.PropertyKey;
 import alluxio.RuntimeConstants;
+import alluxio.client.block.options.LockBlockOptions;
 import alluxio.exception.AlluxioException;
 import alluxio.exception.ExceptionMessage;
 import alluxio.exception.WorkerOutOfSpaceException;
@@ -208,14 +209,15 @@ public final class RetryHandlingBlockWorkerClient
   }
 
   @Override
-  public LockBlockResult lockBlock(final long blockId) throws IOException, AlluxioException {
+  public LockBlockResult lockBlock(final long blockId, final LockBlockOptions options) throws IOException, AlluxioException {
     return retryRPC(
         new RpcCallableThrowsAlluxioTException<LockBlockResult, BlockWorkerClientService
             .Client>() {
           @Override
           public LockBlockResult call(BlockWorkerClientService.Client client)
               throws AlluxioTException, TException {
-            return ThriftUtils.fromThrift(client.lockBlock(blockId, getSessionId()));
+            return ThriftUtils
+                .fromThrift(client.lockBlock(blockId, getSessionId(), options.toThrift()));
           }
         });
   }

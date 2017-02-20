@@ -44,12 +44,13 @@ public final class RoundRobinPolicy implements FileWriteLocationPolicy {
    * are no longer active.
    *
    * @param workerInfoList the info of the active workers
+   * @param blockId the block ID
    * @param blockSizeBytes the size of the block in bytes
    * @return the address of the worker to write to
    */
   @Override
   public WorkerNetAddress getWorkerForNextBlock(Iterable<BlockWorkerInfo> workerInfoList,
-      long blockSizeBytes) {
+      long blockId, long blockSizeBytes) {
     if (!mInitialized) {
       mWorkerInfoList = Lists.newArrayList(workerInfoList);
       Collections.shuffle(mWorkerInfoList);

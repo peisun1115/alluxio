@@ -29,6 +29,7 @@ import alluxio.client.block.UnderStoreBlockInStream;
 import alluxio.client.block.UnderStoreBlockInStream.UnderStoreStreamFactory;
 import alluxio.client.file.options.InStreamOptions;
 import alluxio.client.file.options.OutStreamOptions;
+import alluxio.client.file.policy.BlockLocationPolicy;
 import alluxio.client.file.policy.FileWriteLocationPolicy;
 import alluxio.exception.AlluxioException;
 import alluxio.exception.BlockAlreadyExistsException;
@@ -36,7 +37,6 @@ import alluxio.exception.BlockDoesNotExistException;
 import alluxio.exception.InvalidWorkerStateException;
 import alluxio.exception.PreconditionMessage;
 import alluxio.master.block.BlockId;
-import alluxio.wire.WorkerInfo;
 import alluxio.wire.WorkerNetAddress;
 
 import com.google.common.base.Preconditions;
@@ -46,7 +46,6 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.List;
 
 import javax.annotation.concurrent.NotThreadSafe;
 
@@ -77,7 +76,9 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
   /** Standard block size in bytes of the file, guaranteed for all but the last block. */
   protected final long mBlockSize;
   /** The location policy for CACHE type of read into Alluxio. */
-  protected final FileWriteLocationPolicy mLocationPolicy;
+  protected final FileWriteLocationPolicy mCacheLocationPolicy;
+  /** The location policy to find worker to serve UFS block reads when delegation is on. */
+  private final BlockLocationPolicy mUfsReadLocationPolicy;
   /** Total length of the file in bytes. */
   protected final long mFileLength;
   /** File system context containing the {@link FileSystemMasterClient} pool. */
@@ -143,11 +144,15 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
     mShouldCache = mAlluxioStorageType.isStore();
     mShouldCachePartiallyReadBlock = options.isCachePartiallyReadBlock();
     mClosed = false;
-    mLocationPolicy = options.getLocationPolicy();
+    mCacheLocationPolicy = options.getLocationPolicy();
     if (mShouldCache) {
       Preconditions.checkNotNull(options.getLocationPolicy(),
           PreconditionMessage.FILE_WRITE_LOCATION_POLICY_UNSPECIFIED);
     }
+    mUfsReadLocationPolicy = options.getUfsReadLocationPolicy();
+    Preconditions.checkNotNull(mUfsReadLocationPolicy,
+        PreconditionMessage.UFS_READ_LOCATION_POLICY_UNSPECIFIED);
+
     int seekBufferSizeBytes = Math.max((int) options.getSeekBufferSizeBytes(), 1);
     mSeekBuffer = new byte[seekBufferSizeBytes];
     mBlockStore = AlluxioBlockStore.create(context);
@@ -346,8 +351,8 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
       String path) throws IOException {
     if (Configuration.getBoolean(PropertyKey.USER_UFS_DELEGATION_ENABLED)) {
       try {
-        WorkerNetAddress address =
-            mLocationPolicy.getWorkerForNextBlock(mBlockStore.getWorkerInfoList(), blockId, length);
+        WorkerNetAddress address = mUfsReadLocationPolicy
+            .getWorkerForBlock(mBlockStore.getWorkerInfoList(), blockId, length);
         return StreamFactory
             .createUfsBlockInStream(mContext, path, blockId, length, blockStart, address,
                 mInStreamOptions);
@@ -550,8 +555,8 @@ public class FileInStream extends InputStream implements BoundedStream, Seekable
     }
 
     try {
-      WorkerNetAddress address = mLocationPolicy.getWorkerForNextBlock(
-          mBlockStore.getWorkerInfoList(), blockId, getBlockSizeAllocation(mPos));
+      WorkerNetAddress address = mCacheLocationPolicy.getWorkerForNextBlock(
+          mBlockStore.getWorkerInfoList(), getBlockSizeAllocation(mPos));
       // If we reach here, we need to cache.
       mCurrentCacheStream =
           mBlockStore.getOutStream(blockId, getBlockSize(mPos), address, mOutStreamOptions);

@@ -25,7 +25,9 @@ import alluxio.exception.WorkerOutOfSpaceException;
 import alluxio.thrift.AlluxioTException;
 import alluxio.thrift.BlockWorkerClientService;
 import alluxio.thrift.LockBlockResult;
+import alluxio.thrift.LockBlockTOptions;
 import alluxio.thrift.ThriftIOException;
+import alluxio.worker.block.meta.UnderFileSystemBlockMeta;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -147,18 +149,31 @@ public final class BlockWorkerClientServiceHandler implements BlockWorkerClientS
    * @throws AlluxioTException if an Alluxio error occurs
    */
   @Override
-  public LockBlockResult lockBlock(final long blockId, final long sessionId)
-      throws AlluxioTException {
+  public LockBlockResult lockBlock(final long blockId, final long sessionId,
+      final LockBlockTOptions options) throws AlluxioTException {
     return RpcUtils.callAndLog(LOG, new RpcCallable<LockBlockResult>() {
       @Override
       public LockBlockResult call() throws AlluxioException {
-        long lockId = mWorker.lockBlock(sessionId, blockId);
-        return new LockBlockResult(lockId, mWorker.readBlock(sessionId, blockId, lockId));
+        if (!options.isSetUfsPath() || options.getUfsPath().isEmpty()) {
+          long lockId = mWorker.lockBlock(sessionId, blockId);
+          return new LockBlockResult(lockId, mWorker.readBlock(sessionId, blockId, lockId));
+        }
+
+        long lockId = mWorker.lockBlockNoException(sessionId, blockId);
+        if (lockId != BlockLockManager.INVALID_LOCK_ID) {
+          return new LockBlockResult(lockId, mWorker.readBlock(sessionId, blockId, lockId));
+        }
+        // When the block does not exist in Alluxio but exists in UFS, try to open the UFS
+        // block.
+        mWorker.openUfsBlock(new UnderFileSystemBlockMeta.ConstMeta(sessionId, blockId, options),
+            options.getMaxUfsReadConcurrency());
+        return new LockBlockResult(lockId, "");
       }
 
       @Override
       public String toString() {
-        return String.format("LockBlock: sessionId=%s, blockId=%s", sessionId, blockId);
+        return String
+            .format("LockBlock: sessionId=%s, blockId=%s, options=%s", sessionId, blockId, options);
       }
     });
   }
@@ -303,11 +318,14 @@ public final class BlockWorkerClientServiceHandler implements BlockWorkerClientS
    */
   // TODO(andrew): This should return void
   @Override
-  public boolean unlockBlock(final long blockId, final long sessionId) throws AlluxioTException {
-    return RpcUtils.callAndLog(LOG, new RpcCallable<Boolean>() {
+  public boolean unlockBlock(final long blockId, final long sessionId)
+      throws AlluxioTException, ThriftIOException {
+    return RpcUtils.callAndLog(LOG, new RpcCallableThrowsIOException<Boolean>() {
       @Override
-      public Boolean call() throws AlluxioException {
-        mWorker.unlockBlock(sessionId, blockId);
+      public Boolean call() throws AlluxioException, IOException {
+        if (!mWorker.unlockBlock(sessionId, blockId)) {
+          mWorker.closeUfsBlock(sessionId, blockId);
+        }
         return true;
       }
 

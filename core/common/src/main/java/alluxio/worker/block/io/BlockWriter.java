@@ -11,6 +11,8 @@
 
 package alluxio.worker.block.io;
 
+import io.netty.buffer.ByteBuf;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -37,4 +39,17 @@ public interface BlockWriter extends Closeable {
    * @return channel
    */
   GatheringByteChannel getChannel();
+
+  /**
+   * Transfers buf.writableBytes() bytes to the this block writer from the given buf.
+   *
+   * @param buf the byte buffer to hold the data
+   * @throws IOException if any I/O errors occur
+   */
+  void transferFrom(ByteBuf buf) throws IOException;
+
+  /**
+   * @return the current write position (same as the number of bytes written)
+   */
+  long getPosition();
 }

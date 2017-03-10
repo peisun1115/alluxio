@@ -11,6 +11,7 @@
 
 package alluxio.worker.block.meta;
 
+import alluxio.underfs.options.CreateOptions;
 import alluxio.worker.block.options.OpenUfsBlockOptions;
 
 /**
@@ -26,7 +27,7 @@ public final class UnderFileSystemBlockMeta {
   private final long mBlockSize;
 
   /**
-   * Creates an instance of {@link UnderFileSystemBlockMeta}.
+   * Creates an instance of {@link UnderFileSystemBlockMeta} from an {@link OpenUfsBlockOptions}.
    *
    * @param sessionId the session ID
    * @param blockId the block ID
@@ -38,6 +39,21 @@ public final class UnderFileSystemBlockMeta {
     mUnderFileSystemPath = options.getUnderFileSystemPath();
     mOffset = options.getOffset();
     mBlockSize = options.getBlockSize();
+  }
+
+  /**
+   * Creates an instance of {@link UnderFileSystemBlockMeta} from a {@link CreateOptions}.
+   *
+   * @param sessionId the session ID
+   * @param blockId the block ID
+   * @param options the UFS file create options
+   */
+  public UnderFileSystemBlockMeta(long sessionId, long blockId, CreateOptions options) {
+    mSessionId = sessionId;
+    mBlockId = blockId;
+    mUnderFileSystemPath = options.getPath();
+    mOffset = 0;
+    mBlockSize = Long.MAX_VALUE;
   }
 
   /**

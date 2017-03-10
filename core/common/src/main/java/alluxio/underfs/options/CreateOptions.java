@@ -12,6 +12,7 @@
 package alluxio.underfs.options;
 
 import alluxio.annotation.PublicApi;
+import alluxio.proto.dataserver.Protocol;
 import alluxio.security.authorization.Mode;
 
 import com.google.common.base.Objects;
@@ -34,6 +35,8 @@ public final class CreateOptions {
   private String mOwner;
   private String mGroup;
   private Mode mMode;
+
+  private String mPath;
 
   /**
    * @return the default {@link CreateOptions}
@@ -89,6 +92,13 @@ public final class CreateOptions {
   }
 
   /**
+   * @return the UFS path
+   */
+  public String getPath() {
+    return mPath;
+  }
+
+  /**
    * Sets option to force creation of parent directories. If true, any necessary but nonexistent
    * parent directories are created. If false, the behavior is implementation dependent.
    *
@@ -140,6 +150,27 @@ public final class CreateOptions {
     return this;
   }
 
+  /**
+   * @param path the UFS path
+   * @return the updated object
+   */
+  public CreateOptions setPath(String path) {
+    mPath = path;
+    return this;
+  }
+
+  /**
+   * Creates an instance of {@link CreateOptions} from a
+   * {@link alluxio.proto.dataserver.Protocol.CreateUfsFileOptions}.
+   *
+   * @param options the options in proto
+   * @return the options
+   */
+  public static CreateOptions fromProto(Protocol.CreateUfsFileOptions options) {
+    return defaults().setPath(options.getPath()).setGroup(options.getGroup())
+        .setOwner(options.getOwner()).setMode(new Mode((short) options.getMode()));
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -153,12 +184,13 @@ public final class CreateOptions {
         && (mEnsureAtomic == that.mEnsureAtomic)
         && Objects.equal(mOwner, that.mOwner)
         && Objects.equal(mGroup, that.mGroup)
-        && Objects.equal(mMode, that.mMode);
+        && Objects.equal(mMode, that.mMode)
+        && Objects.equal(mPath, that.mPath);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mCreateParent, mEnsureAtomic, mOwner, mGroup, mMode);
+    return Objects.hashCode(mCreateParent, mEnsureAtomic, mOwner, mGroup, mMode, mPath);
   }
 
   @Override
@@ -169,6 +201,7 @@ public final class CreateOptions {
         .add("owner", mOwner)
         .add("group", mGroup)
         .add("mode", mMode)
+        .add("path", mPath)
         .toString();
   }
 }

@@ -16,6 +16,7 @@ import alluxio.exception.BlockDoesNotExistException;
 import alluxio.exception.InvalidWorkerStateException;
 import alluxio.exception.UfsBlockAccessTokenUnavailableException;
 import alluxio.exception.WorkerOutOfSpaceException;
+import alluxio.underfs.options.CreateOptions;
 import alluxio.wire.FileInfo;
 import alluxio.wire.WorkerNetAddress;
 import alluxio.worker.Worker;
@@ -403,4 +404,9 @@ public interface BlockWorker extends Worker {
   void closeUfsBlock(long sessionId, long blockId)
       throws BlockAlreadyExistsException, BlockDoesNotExistException, InvalidWorkerStateException,
       IOException, WorkerOutOfSpaceException;
+
+  void createUfsBlock(long sessionId, long blockId, CreateOptions options)
+      throws BlockAlreadyExistsException, IOException;
+
+  BlockWriter getUfsBlockWriter(long sessionId, long blockId) throws BlockDoesNotExistException;
 }

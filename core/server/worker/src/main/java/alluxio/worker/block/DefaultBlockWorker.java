@@ -27,6 +27,7 @@ import alluxio.heartbeat.HeartbeatThread;
 import alluxio.metrics.MetricsSystem;
 import alluxio.thrift.AlluxioTException;
 import alluxio.thrift.BlockWorkerClientService;
+import alluxio.underfs.options.CreateOptions;
 import alluxio.util.ThreadFactoryUtils;
 import alluxio.util.network.NetworkAddressUtils;
 import alluxio.util.network.NetworkAddressUtils.ServiceType;
@@ -261,6 +262,8 @@ public final class DefaultBlockWorker extends AbstractWorker implements BlockWor
   public void commitBlock(long sessionId, long blockId)
       throws BlockAlreadyExistsException, BlockDoesNotExistException, InvalidWorkerStateException,
       IOException, WorkerOutOfSpaceException {
+    if (isUfsBlockId(blockId))
+
     // NOTE: this may be invoked multiple times due to retry on client side.
     // TODO(binfan): find a better way to handle retry logic
     try {
@@ -442,14 +445,14 @@ public final class DefaultBlockWorker extends AbstractWorker implements BlockWor
   @Override
   public boolean openUfsBlock(long sessionId, long blockId, OpenUfsBlockOptions options)
       throws BlockAlreadyExistsException {
-    return mUnderFileSystemBlockStore.acquireAccess(sessionId, blockId, options);
+    return mUnderFileSystemBlockStore.openUfsBlock(sessionId, blockId, options);
   }
 
   @Override
   public void closeUfsBlock(long sessionId, long blockId)
       throws BlockAlreadyExistsException, InvalidWorkerStateException, IOException,
       WorkerOutOfSpaceException {
-    mUnderFileSystemBlockStore.closeReaderOrWriter(sessionId, blockId);
+    mUnderFileSystemBlockStore.closeUfsBlock(sessionId, blockId);
     if (mBlockStore.getTempBlockMeta(sessionId, blockId) != null) {
       try {
         commitBlock(sessionId, blockId);
@@ -458,7 +461,19 @@ public final class DefaultBlockWorker extends AbstractWorker implements BlockWor
         LOG.warn("Block {} does not exist while being committed.", blockId);
       }
     }
-    mUnderFileSystemBlockStore.releaseAccess(sessionId, blockId);
+    mUnderFileSystemBlockStore.release(sessionId, blockId);
+  }
+
+  @Override
+  public void createUfsBlock(long sessionId, long blockId, CreateOptions options)
+      throws BlockAlreadyExistsException, IOException {
+    mUnderFileSystemBlockStore.createUfsBlock(sessionId, blockId, options);
+  }
+
+  @Override
+  public BlockWriter getUfsBlockWriter(long sessionId, long blockId)
+      throws BlockDoesNotExistException {
+    return mUnderFileSystemBlockStore.getBlockWriter(sessionId, blockId);
   }
 
   /**

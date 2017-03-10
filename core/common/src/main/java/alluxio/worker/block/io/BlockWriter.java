@@ -53,4 +53,6 @@ public interface BlockWriter extends Closeable {
    * @return the current write position (same as the number of bytes written)
    */
   long getPosition();
+
+  void cancel() throws IOException;
 }

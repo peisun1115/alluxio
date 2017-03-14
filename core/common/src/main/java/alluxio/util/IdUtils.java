@@ -52,10 +52,6 @@ public final class IdUtils {
     return id;
   }
 
-  public static boolean isFileId(long blockId) {
-    return
-  }
-
   /**
    * Creates a file ID from a block ID.
    *

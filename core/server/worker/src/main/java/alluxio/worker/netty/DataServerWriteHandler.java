@@ -25,7 +25,6 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.util.ReferenceCountUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,6 +33,7 @@ import java.io.IOException;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 import javax.annotation.concurrent.GuardedBy;
@@ -63,12 +63,16 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
   private final ExecutorService mPacketWriterExecutor;
 
   private ReentrantLock mLock = new ReentrantLock();
-  /** The buffer for packets read from the channel. */
+  /**
+   * The buffer for packets read from the channel. {@link java.util.concurrent.BlockingQueue} is
+   * used here because we do not want the consumer thread to be blocked when the queue is empty.
+   */
   @GuardedBy("mLock")
   private Queue<ByteBuf> mPackets = new LinkedList<>();
   /** Set to true if the packet writer is active. */
   @GuardedBy("mLock")
   private boolean mPacketWriterActive = false;
+  private Condition mPacketWriterInactive = mLock.newCondition();
 
   protected volatile WriteRequestInternal mRequest = null;
 
@@ -105,7 +109,7 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
     }
 
     RPCProtoMessage msg = (RPCProtoMessage) object;
-    initializeRequest(msg);
+    updateRequest(msg);
 
     // Validate msg and return error if invalid. Init variables if necessary.
     String error = validateRequest(msg);
@@ -178,6 +182,9 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
           .format("Offsets do not match [received: %d, expected: %d].", request.getOffset(),
               mPosToQueue);
     }
+    if (msg.getPayloadDataBuffer().getLength() > 0 && (request.getCancel() || request.getEof())) {
+      return String.format("Found data in a cancel/eof message.");
+    }
     return "";
   }
 
@@ -222,9 +229,16 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
     try {
       mLock.lock();
       for (ByteBuf buf : mPackets) {
-        ReferenceCountUtil.release(buf);
+        buf.release();
       }
-      mPacketWriterActive = false;
+      // Make sure the packet writer thread is done.
+      while (mPacketWriterActive) {
+        try {
+          mPacketWriterInactive.await();
+        } catch (InterruptedException e) {
+          throw new RuntimeException(e);
+        }
+      }
     } finally {
       mLock.unlock();
     }
@@ -266,6 +280,7 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
           buf = mPackets.poll();
           if (buf == null) {
             mPacketWriterActive = false;
+            mPacketWriterInactive.signal();
             break;
           }
           if (!tooManyPacketsInFlight()) {
@@ -287,6 +302,7 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
           writeBuf(buf, mPosToWrite);
         } catch (Exception e) {
           mPacketWriterActive = false;
+          mPacketWriterInactive.signal();
           exceptionCaught(mCtx, e);
           break;
         } finally {
@@ -316,7 +332,7 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
    * @param msg the block write request
    * @throws Exception if it fails to initialize
    */
-  protected void initializeRequest(RPCProtoMessage msg) throws Exception {
+  protected void updateRequest(RPCProtoMessage msg) throws Exception {
     if (mRequest == null) {
       mPosToQueue = 0;
       mPosToWrite = 0;

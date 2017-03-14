@@ -14,14 +14,12 @@ package alluxio.worker.block;
 import alluxio.exception.BlockAlreadyExistsException;
 import alluxio.exception.BlockDoesNotExistException;
 import alluxio.exception.ExceptionMessage;
-import alluxio.underfs.options.CreateOptions;
 import alluxio.worker.block.io.BlockReader;
 import alluxio.worker.block.io.BlockWriter;
 import alluxio.worker.block.meta.UnderFileSystemBlockMeta;
 import alluxio.worker.block.options.OpenUfsBlockOptions;
 
 import com.google.common.base.Objects;
-import com.google.common.base.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,8 +43,6 @@ import javax.annotation.concurrent.GuardedBy;
  * If the client is lost before releasing or cleaning up the session, the session cleaner will
  * clean the data.
  */
-// TODO(peis): When we stop supporting the non-packet-streaming, simplify and move these logic to
-// the data server since we do not need to keep track of the reader/writer in packet streaming mode.
 public final class UnderFileSystemBlockStore {
   private static final Logger LOG = LoggerFactory.getLogger(UnderFileSystemBlockStore.class);
 
@@ -82,17 +78,17 @@ public final class UnderFileSystemBlockStore {
   }
 
   /**
-   * Opens a UFS block given a {@link UnderFileSystemBlockMeta} and the limit on
+   * Acquires access for a UFS block given a {@link UnderFileSystemBlockMeta} and the limit on
    * the maximum concurrency on the block. If the number of concurrent readers on this UFS block
    * exceeds a threshold, the token is not granted and this method returns false.
    *
    * @param sessionId the session ID
    * @param blockId maximum concurrency
    * @param options the options
-   * @return whether the UFS block is successfully opened
+   * @return whether an access token is acquired
    * @throws BlockAlreadyExistsException if the block already exists for a session ID
    */
-  public boolean openUfsBlock(long sessionId, long blockId, OpenUfsBlockOptions options)
+  public boolean acquireAccess(long sessionId, long blockId, OpenUfsBlockOptions options)
       throws BlockAlreadyExistsException {
     UnderFileSystemBlockMeta blockMeta = new UnderFileSystemBlockMeta(sessionId, blockId, options);
     mLock.lock();
@@ -127,66 +123,31 @@ public final class UnderFileSystemBlockStore {
   }
 
   /**
-   * Creates a UFS block to write with options. Note: a UFS file during write only has one block
-   * from Alluxio's point of view. The block ID has to be the same as file ID which is the largest
-   * possible blockId corresponding to the file ID.
+   * Closes the block reader or writer and checks whether it is necessary to commit the block
+   * to Local block store.
    *
-   * @param sessionId
-   * @param blockId
-   * @param options
+   * During UFS block read, this is triggered when the block is unlocked.
+   * During UFS block write, this is triggered when the UFS block is committed.
+   *
+   * @param sessionId the session ID
+   * @param blockId the block ID
+   * @throws IOException if it fails to clean up
    */
-  public void createUfsBlock(long sessionId, long blockId, CreateOptions options)
-      throws BlockAlreadyExistsException, IOException {
-    UnderFileSystemBlockMeta blockMeta = new UnderFileSystemBlockMeta(sessionId, blockId, options);
+  public void closeReaderOrWriter(long sessionId, long blockId) throws IOException {
     BlockInfo blockInfo;
     mLock.lock();
     try {
-      Set<Long> sessionIds = mBlockIdToSessionIds.get(blockId);
-      if (sessionIds != null) {
-        throw new BlockAlreadyExistsException(ExceptionMessage.UFS_BLOCK_ALREADY_EXISTS_FOR_SESSION,
-            blockId, blockMeta.getUnderFileSystemPath(), sessionId);
+      blockInfo = mBlocks.get(new Key(sessionId, blockId));
+      if (blockInfo == null) {
+        LOG.warn("Key (block ID: {}, session ID {}) is not found when cleaning up the UFS block.",
+            blockId, sessionId);
+        return;
       }
-      sessionIds = new HashSet<>();
-      sessionIds.add(sessionId);
-      mBlockIdToSessionIds.put(blockId, sessionIds);
-      blockInfo = new BlockInfo(blockMeta);
-      mBlocks.put(new Key(sessionId, blockId), blockInfo);
-
-      Set<Long> blockIds = mSessionIdToBlockIds.get(sessionId);
-      if (blockIds == null) {
-        blockIds = new HashSet<>();
-        mSessionIdToBlockIds.put(sessionId, blockIds);
-      }
-      blockIds.add(blockId);
     } finally {
       mLock.unlock();
     }
-    UnderFileSystemBlockWriter blockWriter = UnderFileSystemBlockWriter.create(blockMeta, options);
-    blockInfo.setBlockWriter(blockWriter);
+    blockInfo.closeReaderOrWriter();
   }
-
-  public void cancelUfsBlock(long session, long blockId) throws IOException {
-    BlockInfo blockInfo = getBlockInfoOrNull(session, blockId);
-    if (blockInfo != null && blockInfo.getBlockWriter() != null) {
-      blockInfo.getBlockWriter().cancel();
-    }
-  }
-
-  public void completeUfsBlock(long session, long blockId) throws IOException {
-    BlockInfo blockInfo = getBlockInfoOrNull(session, blockId);
-    if (blockInfo != null && blockInfo.getBlockWriter() != null) {
-      blockInfo.getBlockWriter().close();
-    }
-  }
-
-  public void closeUfsBlock(long session, long blockId) throws IOException {
-    BlockInfo blockInfo = getBlockInfoOrNull(session, blockId);
-    if (blockInfo != null && blockInfo.getBlockReader() != null) {
-      blockInfo.getBlockReader().close();
-    }
-  }
-
-
 
   /**
    * Releases the access token of this block by removing this (sessionId, blockId) pair from the
@@ -195,7 +156,7 @@ public final class UnderFileSystemBlockStore {
    * @param sessionId the session ID
    * @param blockId the block ID
    */
-  public void release(long sessionId, long blockId) {
+  public void releaseAccess(long sessionId, long blockId) {
     mLock.lock();
     try {
       Key key = new Key(sessionId, blockId);
@@ -239,9 +200,8 @@ public final class UnderFileSystemBlockStore {
         // Note that we don't need to explicitly call abortBlock to cleanup the temp block
         // in Local block store because they will be cleanup by the session cleaner in the
         // Local block store.
-        closeUfsBlock(sessionId, blockId);
-        cancelUfsBlock(sessionId, blockId);
-        release(sessionId, blockId);
+        closeReaderOrWriter(sessionId, blockId);
+        releaseAccess(sessionId, blockId);
       } catch (Exception e) {
         LOG.warn("Failed to cleanup UFS block {}, session {}.", blockId, sessionId);
       }
@@ -261,33 +221,24 @@ public final class UnderFileSystemBlockStore {
    * {@link UnderFileSystemBlockStore}
    * @throws IOException if any I/O errors occur
    */
-  public BlockReader getBlockReader(long sessionId, long blockId, long offset, boolean noCache)
-      throws BlockDoesNotExistException, IOException {
-    BlockInfo blockInfo = getBlockInfo(sessionId, blockId);
-    BlockReader blockReader = blockInfo.getBlockReader();
-    if (blockReader != null) {
-      return blockReader;
+  public BlockReader getBlockReader(final long sessionId, long blockId, long offset,
+      boolean noCache) throws BlockDoesNotExistException, IOException {
+    final BlockInfo blockInfo;
+    mLock.lock();
+    try {
+      blockInfo = getBlockInfo(sessionId, blockId);
+      BlockReader blockReader = blockInfo.getBlockReader();
+      if (blockReader != null) {
+        return blockReader;
+      }
+    } finally {
+      mLock.unlock();
     }
     BlockReader reader =
         UnderFileSystemBlockReader.create(blockInfo.getMeta(), offset, noCache, mLocalBlockStore);
     blockInfo.setBlockReader(reader);
     return reader;
   }
-
-  /**
-   *
-   * @param sessionId
-   * @param blockId
-   * @return
-   * @throws BlockDoesNotExistException
-   */
-  public BlockWriter getBlockWriter(long sessionId, long blockId)
-      throws BlockDoesNotExistException {
-    BlockInfo blockInfo = getBlockInfo(sessionId, blockId);
-    // The block writer is created when the UFS block is created.
-    return Preconditions.checkNotNull(blockInfo.getBlockWriter());
-  }
-
 
   /**
    * Gets the {@link UnderFileSystemBlockMeta} for a session ID and block ID pair.
@@ -299,21 +250,13 @@ public final class UnderFileSystemBlockStore {
    * {@link UnderFileSystemBlockStore}
    */
   private BlockInfo getBlockInfo(long sessionId, long blockId) throws BlockDoesNotExistException {
-    BlockInfo blockInfo = getBlockInfoOrNull(sessionId, blockId);
+    Key key = new Key(sessionId, blockId);
+    BlockInfo blockInfo = mBlocks.get(key);
     if (blockInfo == null) {
       throw new BlockDoesNotExistException(ExceptionMessage.UFS_BLOCK_DOES_NOT_EXIST_FOR_SESSION,
           blockId, sessionId);
     }
     return blockInfo;
-  }
-
-  private BlockInfo getBlockInfoOrNull(long sessionId, long blockId) {
-    mLock.lock();
-    try {
-      return mBlocks.get(new Key(sessionId, blockId));
-    } finally {
-      mLock.unlock();
-    }
   }
 
   private static class Key {
@@ -431,6 +374,22 @@ public final class UnderFileSystemBlockStore {
      */
     public synchronized void setBlockWriter(BlockWriter blockWriter) {
       mBlockWriter = blockWriter;
+    }
+
+    /**
+     * Closes the block reader or writer.
+     *
+     * @throws IOException if it fails to close block reader or writer
+     */
+    public synchronized void closeReaderOrWriter() throws IOException {
+      if (mBlockReader != null) {
+        mBlockReader.close();
+        mBlockReader = null;
+      }
+      if (mBlockWriter != null) {
+        mBlockWriter.close();
+        mBlockWriter = null;
+      }
     }
   }
 }

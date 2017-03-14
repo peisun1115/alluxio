@@ -2929,28 +2929,36 @@ public final class Protocol {
     // optional .alluxio.proto.dataserver.CreateUfsFileOptions create_ufs_file_options = 6;
     /**
      * <code>optional .alluxio.proto.dataserver.CreateUfsFileOptions create_ufs_file_options = 6;</code>
-     *
-     * <pre>
-     * This is only applicable for UFS write.
-     * </pre>
      */
     boolean hasCreateUfsFileOptions();
     /**
      * <code>optional .alluxio.proto.dataserver.CreateUfsFileOptions create_ufs_file_options = 6;</code>
-     *
-     * <pre>
-     * This is only applicable for UFS write.
-     * </pre>
      */
     alluxio.proto.dataserver.Protocol.CreateUfsFileOptions getCreateUfsFileOptions();
     /**
      * <code>optional .alluxio.proto.dataserver.CreateUfsFileOptions create_ufs_file_options = 6;</code>
-     *
-     * <pre>
-     * This is only applicable for UFS write.
-     * </pre>
      */
     alluxio.proto.dataserver.Protocol.CreateUfsFileOptionsOrBuilder getCreateUfsFileOptionsOrBuilder();
+
+    // optional bool eof = 7;
+    /**
+     * <code>optional bool eof = 7;</code>
+     */
+    boolean hasEof();
+    /**
+     * <code>optional bool eof = 7;</code>
+     */
+    boolean getEof();
+
+    // optional bool cancel = 8;
+    /**
+     * <code>optional bool cancel = 8;</code>
+     */
+    boolean hasCancel();
+    /**
+     * <code>optional bool cancel = 8;</code>
+     */
+    boolean getCancel();
   }
   /**
    * Protobuf type {@code alluxio.proto.dataserver.WriteRequest}
@@ -3049,6 +3057,16 @@ public final class Protocol {
                 createUfsFileOptions_ = subBuilder.buildPartial();
               }
               bitField0_ |= 0x00000020;
+              break;
+            }
+            case 56: {
+              bitField0_ |= 0x00000040;
+              eof_ = input.readBool();
+              break;
+            }
+            case 64: {
+              bitField0_ |= 0x00000080;
+              cancel_ = input.readBool();
               break;
             }
           }
@@ -3192,33 +3210,53 @@ public final class Protocol {
     private alluxio.proto.dataserver.Protocol.CreateUfsFileOptions createUfsFileOptions_;
     /**
      * <code>optional .alluxio.proto.dataserver.CreateUfsFileOptions create_ufs_file_options = 6;</code>
-     *
-     * <pre>
-     * This is only applicable for UFS write.
-     * </pre>
      */
     public boolean hasCreateUfsFileOptions() {
       return ((bitField0_ & 0x00000020) == 0x00000020);
     }
     /**
      * <code>optional .alluxio.proto.dataserver.CreateUfsFileOptions create_ufs_file_options = 6;</code>
-     *
-     * <pre>
-     * This is only applicable for UFS write.
-     * </pre>
      */
     public alluxio.proto.dataserver.Protocol.CreateUfsFileOptions getCreateUfsFileOptions() {
       return createUfsFileOptions_;
     }
     /**
      * <code>optional .alluxio.proto.dataserver.CreateUfsFileOptions create_ufs_file_options = 6;</code>
-     *
-     * <pre>
-     * This is only applicable for UFS write.
-     * </pre>
      */
     public alluxio.proto.dataserver.Protocol.CreateUfsFileOptionsOrBuilder getCreateUfsFileOptionsOrBuilder() {
       return createUfsFileOptions_;
+    }
+
+    // optional bool eof = 7;
+    public static final int EOF_FIELD_NUMBER = 7;
+    private boolean eof_;
+    /**
+     * <code>optional bool eof = 7;</code>
+     */
+    public boolean hasEof() {
+      return ((bitField0_ & 0x00000040) == 0x00000040);
+    }
+    /**
+     * <code>optional bool eof = 7;</code>
+     */
+    public boolean getEof() {
+      return eof_;
+    }
+
+    // optional bool cancel = 8;
+    public static final int CANCEL_FIELD_NUMBER = 8;
+    private boolean cancel_;
+    /**
+     * <code>optional bool cancel = 8;</code>
+     */
+    public boolean hasCancel() {
+      return ((bitField0_ & 0x00000080) == 0x00000080);
+    }
+    /**
+     * <code>optional bool cancel = 8;</code>
+     */
+    public boolean getCancel() {
+      return cancel_;
     }
 
     private void initFields() {
@@ -3228,6 +3266,8 @@ public final class Protocol {
       sessionId_ = 0L;
       tier_ = 0;
       createUfsFileOptions_ = alluxio.proto.dataserver.Protocol.CreateUfsFileOptions.getDefaultInstance();
+      eof_ = false;
+      cancel_ = false;
     }
     private byte memoizedIsInitialized = -1;
     public final boolean isInitialized() {
@@ -3258,6 +3298,12 @@ public final class Protocol {
       }
       if (((bitField0_ & 0x00000020) == 0x00000020)) {
         output.writeMessage(6, createUfsFileOptions_);
+      }
+      if (((bitField0_ & 0x00000040) == 0x00000040)) {
+        output.writeBool(7, eof_);
+      }
+      if (((bitField0_ & 0x00000080) == 0x00000080)) {
+        output.writeBool(8, cancel_);
       }
       getUnknownFields().writeTo(output);
     }
@@ -3291,6 +3337,14 @@ public final class Protocol {
       if (((bitField0_ & 0x00000020) == 0x00000020)) {
         size += com.google.protobuf.CodedOutputStream
           .computeMessageSize(6, createUfsFileOptions_);
+      }
+      if (((bitField0_ & 0x00000040) == 0x00000040)) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeBoolSize(7, eof_);
+      }
+      if (((bitField0_ & 0x00000080) == 0x00000080)) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeBoolSize(8, cancel_);
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSerializedSize = size;
@@ -3429,6 +3483,10 @@ public final class Protocol {
           createUfsFileOptionsBuilder_.clear();
         }
         bitField0_ = (bitField0_ & ~0x00000020);
+        eof_ = false;
+        bitField0_ = (bitField0_ & ~0x00000040);
+        cancel_ = false;
+        bitField0_ = (bitField0_ & ~0x00000080);
         return this;
       }
 
@@ -3485,6 +3543,14 @@ public final class Protocol {
         } else {
           result.createUfsFileOptions_ = createUfsFileOptionsBuilder_.build();
         }
+        if (((from_bitField0_ & 0x00000040) == 0x00000040)) {
+          to_bitField0_ |= 0x00000040;
+        }
+        result.eof_ = eof_;
+        if (((from_bitField0_ & 0x00000080) == 0x00000080)) {
+          to_bitField0_ |= 0x00000080;
+        }
+        result.cancel_ = cancel_;
         result.bitField0_ = to_bitField0_;
         onBuilt();
         return result;
@@ -3518,6 +3584,12 @@ public final class Protocol {
         }
         if (other.hasCreateUfsFileOptions()) {
           mergeCreateUfsFileOptions(other.getCreateUfsFileOptions());
+        }
+        if (other.hasEof()) {
+          setEof(other.getEof());
+        }
+        if (other.hasCancel()) {
+          setCancel(other.getCancel());
         }
         this.mergeUnknownFields(other.getUnknownFields());
         return this;
@@ -3752,20 +3824,12 @@ public final class Protocol {
           alluxio.proto.dataserver.Protocol.CreateUfsFileOptions, alluxio.proto.dataserver.Protocol.CreateUfsFileOptions.Builder, alluxio.proto.dataserver.Protocol.CreateUfsFileOptionsOrBuilder> createUfsFileOptionsBuilder_;
       /**
        * <code>optional .alluxio.proto.dataserver.CreateUfsFileOptions create_ufs_file_options = 6;</code>
-       *
-       * <pre>
-       * This is only applicable for UFS write.
-       * </pre>
        */
       public boolean hasCreateUfsFileOptions() {
         return ((bitField0_ & 0x00000020) == 0x00000020);
       }
       /**
        * <code>optional .alluxio.proto.dataserver.CreateUfsFileOptions create_ufs_file_options = 6;</code>
-       *
-       * <pre>
-       * This is only applicable for UFS write.
-       * </pre>
        */
       public alluxio.proto.dataserver.Protocol.CreateUfsFileOptions getCreateUfsFileOptions() {
         if (createUfsFileOptionsBuilder_ == null) {
@@ -3776,10 +3840,6 @@ public final class Protocol {
       }
       /**
        * <code>optional .alluxio.proto.dataserver.CreateUfsFileOptions create_ufs_file_options = 6;</code>
-       *
-       * <pre>
-       * This is only applicable for UFS write.
-       * </pre>
        */
       public Builder setCreateUfsFileOptions(alluxio.proto.dataserver.Protocol.CreateUfsFileOptions value) {
         if (createUfsFileOptionsBuilder_ == null) {
@@ -3796,10 +3856,6 @@ public final class Protocol {
       }
       /**
        * <code>optional .alluxio.proto.dataserver.CreateUfsFileOptions create_ufs_file_options = 6;</code>
-       *
-       * <pre>
-       * This is only applicable for UFS write.
-       * </pre>
        */
       public Builder setCreateUfsFileOptions(
           alluxio.proto.dataserver.Protocol.CreateUfsFileOptions.Builder builderForValue) {
@@ -3814,10 +3870,6 @@ public final class Protocol {
       }
       /**
        * <code>optional .alluxio.proto.dataserver.CreateUfsFileOptions create_ufs_file_options = 6;</code>
-       *
-       * <pre>
-       * This is only applicable for UFS write.
-       * </pre>
        */
       public Builder mergeCreateUfsFileOptions(alluxio.proto.dataserver.Protocol.CreateUfsFileOptions value) {
         if (createUfsFileOptionsBuilder_ == null) {
@@ -3837,10 +3889,6 @@ public final class Protocol {
       }
       /**
        * <code>optional .alluxio.proto.dataserver.CreateUfsFileOptions create_ufs_file_options = 6;</code>
-       *
-       * <pre>
-       * This is only applicable for UFS write.
-       * </pre>
        */
       public Builder clearCreateUfsFileOptions() {
         if (createUfsFileOptionsBuilder_ == null) {
@@ -3854,10 +3902,6 @@ public final class Protocol {
       }
       /**
        * <code>optional .alluxio.proto.dataserver.CreateUfsFileOptions create_ufs_file_options = 6;</code>
-       *
-       * <pre>
-       * This is only applicable for UFS write.
-       * </pre>
        */
       public alluxio.proto.dataserver.Protocol.CreateUfsFileOptions.Builder getCreateUfsFileOptionsBuilder() {
         bitField0_ |= 0x00000020;
@@ -3866,10 +3910,6 @@ public final class Protocol {
       }
       /**
        * <code>optional .alluxio.proto.dataserver.CreateUfsFileOptions create_ufs_file_options = 6;</code>
-       *
-       * <pre>
-       * This is only applicable for UFS write.
-       * </pre>
        */
       public alluxio.proto.dataserver.Protocol.CreateUfsFileOptionsOrBuilder getCreateUfsFileOptionsOrBuilder() {
         if (createUfsFileOptionsBuilder_ != null) {
@@ -3880,10 +3920,6 @@ public final class Protocol {
       }
       /**
        * <code>optional .alluxio.proto.dataserver.CreateUfsFileOptions create_ufs_file_options = 6;</code>
-       *
-       * <pre>
-       * This is only applicable for UFS write.
-       * </pre>
        */
       private com.google.protobuf.SingleFieldBuilder<
           alluxio.proto.dataserver.Protocol.CreateUfsFileOptions, alluxio.proto.dataserver.Protocol.CreateUfsFileOptions.Builder, alluxio.proto.dataserver.Protocol.CreateUfsFileOptionsOrBuilder> 
@@ -3897,6 +3933,72 @@ public final class Protocol {
           createUfsFileOptions_ = null;
         }
         return createUfsFileOptionsBuilder_;
+      }
+
+      // optional bool eof = 7;
+      private boolean eof_ ;
+      /**
+       * <code>optional bool eof = 7;</code>
+       */
+      public boolean hasEof() {
+        return ((bitField0_ & 0x00000040) == 0x00000040);
+      }
+      /**
+       * <code>optional bool eof = 7;</code>
+       */
+      public boolean getEof() {
+        return eof_;
+      }
+      /**
+       * <code>optional bool eof = 7;</code>
+       */
+      public Builder setEof(boolean value) {
+        bitField0_ |= 0x00000040;
+        eof_ = value;
+        onChanged();
+        return this;
+      }
+      /**
+       * <code>optional bool eof = 7;</code>
+       */
+      public Builder clearEof() {
+        bitField0_ = (bitField0_ & ~0x00000040);
+        eof_ = false;
+        onChanged();
+        return this;
+      }
+
+      // optional bool cancel = 8;
+      private boolean cancel_ ;
+      /**
+       * <code>optional bool cancel = 8;</code>
+       */
+      public boolean hasCancel() {
+        return ((bitField0_ & 0x00000080) == 0x00000080);
+      }
+      /**
+       * <code>optional bool cancel = 8;</code>
+       */
+      public boolean getCancel() {
+        return cancel_;
+      }
+      /**
+       * <code>optional bool cancel = 8;</code>
+       */
+      public Builder setCancel(boolean value) {
+        bitField0_ |= 0x00000080;
+        cancel_ = value;
+        onChanged();
+        return this;
+      }
+      /**
+       * <code>optional bool cancel = 8;</code>
+       */
+      public Builder clearCancel() {
+        bitField0_ = (bitField0_ & ~0x00000080);
+        cancel_ = false;
+        onChanged();
+        return this;
       }
 
       // @@protoc_insertion_point(builder_scope:alluxio.proto.dataserver.WriteRequest)
@@ -5378,17 +5480,18 @@ public final class Protocol {
       "tType\022\n\n\002id\030\002 \001(\003\022\016\n\006offset\030\003 \001(\003\022\016\n\006len" +
       "gth\030\004 \001(\003\022\016\n\006cancel\030\005 \001(\010\022\017\n\007lock_id\030\006 \001" +
       "(\003\022\022\n\nsession_id\030\007 \001(\003\022\020\n\010no_cache\030\010 \001(\010" +
-      "\"\322\001\n\014WriteRequest\0223\n\004type\030\001 \001(\0162%.alluxi" +
+      "\"\357\001\n\014WriteRequest\0223\n\004type\030\001 \001(\0162%.alluxi" +
       "o.proto.dataserver.RequestType\022\n\n\002id\030\002 \001",
       "(\003\022\016\n\006offset\030\003 \001(\003\022\022\n\nsession_id\030\004 \001(\003\022\014" +
       "\n\004tier\030\005 \001(\005\022O\n\027create_ufs_file_options\030" +
       "\006 \001(\0132..alluxio.proto.dataserver.CreateU" +
-      "fsFileOptions\"P\n\024CreateUfsFileOptions\022\014\n" +
-      "\004path\030\001 \001(\t\022\r\n\005owner\030\002 \001(\t\022\r\n\005group\030\003 \001(" +
-      "\t\022\014\n\004mode\030\004 \001(\005\"<\n\010Response\0220\n\006status\030\001 " +
-      "\001(\0132 .alluxio.proto.dataserver.Status*=\n" +
-      "\013RequestType\022\021\n\rALLUXIO_BLOCK\020\000\022\014\n\010UFS_F" +
-      "ILE\020\001\022\r\n\tUFS_BLOCK\020\002"
+      "fsFileOptions\022\013\n\003eof\030\007 \001(\010\022\016\n\006cancel\030\010 \001" +
+      "(\010\"P\n\024CreateUfsFileOptions\022\014\n\004path\030\001 \001(\t" +
+      "\022\r\n\005owner\030\002 \001(\t\022\r\n\005group\030\003 \001(\t\022\014\n\004mode\030\004" +
+      " \001(\005\"<\n\010Response\0220\n\006status\030\001 \001(\0132 .allux" +
+      "io.proto.dataserver.Status*=\n\013RequestTyp" +
+      "e\022\021\n\rALLUXIO_BLOCK\020\000\022\014\n\010UFS_FILE\020\001\022\r\n\tUF" +
+      "S_BLOCK\020\002"
     };
     com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner assigner =
       new com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner() {
@@ -5418,7 +5521,7 @@ public final class Protocol {
           internal_static_alluxio_proto_dataserver_WriteRequest_fieldAccessorTable = new
             com.google.protobuf.GeneratedMessage.FieldAccessorTable(
               internal_static_alluxio_proto_dataserver_WriteRequest_descriptor,
-              new java.lang.String[] { "Type", "Id", "Offset", "SessionId", "Tier", "CreateUfsFileOptions", });
+              new java.lang.String[] { "Type", "Id", "Offset", "SessionId", "Tier", "CreateUfsFileOptions", "Eof", "Cancel", });
           internal_static_alluxio_proto_dataserver_CreateUfsFileOptions_descriptor =
             getDescriptor().getMessageTypes().get(4);
           internal_static_alluxio_proto_dataserver_CreateUfsFileOptions_fieldAccessorTable = new

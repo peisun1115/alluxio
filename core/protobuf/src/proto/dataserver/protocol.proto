@@ -73,8 +73,10 @@ message WriteRequest {
   // This is only applicable for block write.
   optional int32 tier = 5;
 
-  // This is only applicable for UFS write.
   optional CreateUfsFileOptions create_ufs_file_options = 6;
+
+  optional bool eof = 7;
+  optional bool cancel = 8;
 }
 
 message CreateUfsFileOptions {

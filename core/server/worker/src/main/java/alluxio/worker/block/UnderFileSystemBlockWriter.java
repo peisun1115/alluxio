@@ -31,8 +31,7 @@ import javax.annotation.concurrent.NotThreadSafe;
 
 @NotThreadSafe
 public final class UnderFileSystemBlockWriter implements BlockWriter {
-  /** The block metadata for the UFS block. */
-  private final UnderFileSystemBlockMeta mBlockMeta;
+  private final String mUfsPath;
 
   private OutputStream mUnderFileSystemOutputStream;
   private long mPos;
@@ -43,14 +42,14 @@ public final class UnderFileSystemBlockWriter implements BlockWriter {
   /**
    * Creates an instance of {@link UnderFileSystemBlockWriter}.
    *
-   * @param blockMeta the block metadata
+   * @param path the UFS path
    * @param options the options to create the file in UFS
    * @return the UFS block writer instance
    * @throws IOException if any I/O related errors occur
    */
-  public static UnderFileSystemBlockWriter create(UnderFileSystemBlockMeta blockMeta,
-      CreateOptions options) throws IOException {
-    UnderFileSystemBlockWriter writer = new UnderFileSystemBlockWriter(blockMeta);
+  public static UnderFileSystemBlockWriter create(String path, CreateOptions options)
+      throws IOException {
+    UnderFileSystemBlockWriter writer = new UnderFileSystemBlockWriter(path);
     writer.init(options);
     return writer;
   }
@@ -58,10 +57,10 @@ public final class UnderFileSystemBlockWriter implements BlockWriter {
   /**
    * Constructs an instance of {@link UnderFileSystemBlockWriter}.
    *
-   * @param blockMeta the block metadata
+   * @param path the UFS path
    */
-  private UnderFileSystemBlockWriter(UnderFileSystemBlockMeta blockMeta) {
-    mBlockMeta = blockMeta;
+  private UnderFileSystemBlockWriter(String path) {
+    mUfsPath = path;
   }
 
   /**
@@ -71,11 +70,11 @@ public final class UnderFileSystemBlockWriter implements BlockWriter {
    * @throws IOException if any I/O related errors occur
    */
   private void init(CreateOptions options) throws IOException {
-    UnderFileSystem ufs = UnderFileSystem.Factory.get(mBlockMeta.getUnderFileSystemPath());
+    UnderFileSystem ufs = UnderFileSystem.Factory.get(mUfsPath);
     ufs.connectFromWorker(
         NetworkAddressUtils.getConnectHost(NetworkAddressUtils.ServiceType.WORKER_RPC));
 
-    mUnderFileSystemOutputStream = ufs.create(mBlockMeta.getUnderFileSystemPath(), options);
+    mUnderFileSystemOutputStream = ufs.create(mUfsPath, options);
   }
 
   @Override
@@ -107,12 +106,19 @@ public final class UnderFileSystemBlockWriter implements BlockWriter {
 
   @Override
   public void cancel() throws IOException {
+    // This cancel approach has a potential race condition with the following event order:
+    // 1. The client cancels the file. The worker thread that executes this cancel is context
+    //    switched after mUnderFileSystemOutputStream.close().
+    // 2. The client is dead and retries. It deletes and writes the file successfully.
+    // 3. The server finishes the initial cancel request by deleting the file. The content
+    //    written in step 2 is gone.
+    // The way to fix this is to have the UnderFileSystem to implement cancel correctly.
     try {
       mUnderFileSystemOutputStream.close();
     } finally {
-      UnderFileSystem ufs = UnderFileSystem.Factory.get(mBlockMeta.getUnderFileSystemPath());
+      UnderFileSystem ufs = UnderFileSystem.Factory.get(mUfsPath);
       // TODO(calvin): Log a warning if the delete fails
-      ufs.deleteFile(mBlockMeta.getUnderFileSystemPath());
+      ufs.deleteFile(mUfsPath);
     }
     mClosed = true;
   }

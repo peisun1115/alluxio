@@ -50,7 +50,8 @@ import javax.annotation.concurrent.NotThreadSafe;
  * 2. The {@link PacketWriter} polls packets from the buffer and writes to the block worker. The
  *    writer becomes inactive if there is nothing on the buffer to free up the executor. It is
  *    resumed when the buffer becomes non-empty.
- * 3. When an error occurs, the channel is closed. All the buffered packets are released when the
+ * 3. An EOF or CANCEL message signifies the completion of this request.
+ * 4. When an error occurs, the channel is closed. All the buffered packets are released when the
  *    channel is deregistered.
  */
 @NotThreadSafe
@@ -89,15 +90,19 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
   private Queue<ByteBuf> mPackets = new LinkedList<>();
 
   /**
-   * Set to true if the packet writer is active. The following invariant must be maintained:
+   * Set to true if the packet writer is active.
+   *
+   * The following invariant must be maintained.
    * 1. After this is set to true, there must be a thread that reads from mPackets at least once
    *    and eventually sets mPacketWriterActive to false.
    * 2. After this is set to false, there must be no thread that reads from mPackets.
    *
-   * These invariants are achieved by this:
-   * 1. Whenever a packet is read, check
+   * The above can be achieved by protecting it with "mLock". It is set to true when a new packet
+   * is read and it is false. It set to false when one of the these is true: 1) The mPackets queue
+   * is empty; 2) The write request is fulfilled (eof or cancel is received); 3) A failure occurs.
    */
-  private AtomicBoolean mPacketWriterActive = new AtomicBoolean(false);
+  @GuardedBy("mLock")
+  private boolean mPacketWriterActive = false;
 
   /**
    * mRequest is only updated once per block/file read. It needs to be updated 'atomically' since
@@ -174,14 +179,13 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
         buf = (ByteBuf) dataBuffer.getNettyOutput();
         mPosToQueue += buf.readableBytes();
       }
-      if (mPacketWriterActive.compareAndSet(false, true)) {
+      if (!mPacketWriterActive) {
+        mPacketWriterActive = true;
         mPacketWriterExecutor.submit(new PacketWriter(ctx));
       }
-      // This packet must be pushed after mPacketWriterActive is reset. See the comment of
-      // mPacketWriterActive for the invariants we are trying to maintain.
       mPackets.offer(buf);
       if (tooManyPacketsInFlight()) {
-        ctx.channel().config().setAutoRead(false);
+        NettyUtils.disableAutoRead(ctx.channel());
       }
     } finally {
       mLock.unlock();
@@ -244,7 +248,8 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
   }
 
   /**
-   * Aborts the write abnormally due to some error
+   * Aborts the write abnormally due to some error. Called after the channel is closed.
+   *
    * @throws IOException
    */
   private void abortAbnormally() throws IOException {
@@ -263,33 +268,6 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
       request.cancel();
     }
  }
-
-  private void reset() throws IOException {
-    if (mRequest != null) {
-      mRequest.close();
-      mRequest = null;
-    }
-
-    mPosToQueue = 0;
-    mPosToWrite = 0;
-
-    try {
-      mLock.lock();
-      for (ByteBuf buf : mPackets) {
-        buf.release();
-      }
-      // Make sure the packet writer thread is done.
-      while (mPacketWriterActive) {
-        try {
-          mPacketWriterInactive.await();
-        } catch (InterruptedException e) {
-          throw new RuntimeException(e);
-        }
-      }
-    } finally {
-      mLock.unlock();
-    }
-  }
 
   /**
    * A runnable that polls from the packets queue and writes to the block worker.
@@ -330,7 +308,8 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
             Preconditions.checkState(mPackets.isEmpty());
           }
           if (buf == null) {
-            mPacketWriterActive.compareAndSet(true, false);
+            // Case 1 to set mPacketWriterActive to false. See mPacketWriterActive's javadoc.
+            mPacketWriterActive = false;
             break;
           }
           if (!tooManyPacketsInFlight()) {
@@ -361,7 +340,13 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
             writeBuf(buf, mPosToWrite);
           }
         } catch (Exception e) {
-          mPacketWriterActive.set(false);
+          // Case 3 to set mPacketWriterActive to false. See mPacketWriterActive's javadoc.
+          mLock.lock();
+          try {
+            mPacketWriterActive = false;
+          } finally {
+            mLock.unlock();
+          }
           exceptionCaught(mCtx, e);
           break;
         } finally {
@@ -370,16 +355,38 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
       }
     }
 
+    /**
+     * Completes this write.
+     *
+     * @throws IOException if I/O related errors occur
+     */
     private void complete() throws IOException {
-      mPacketWriterActive.set(false);
+      // Case 2 to set mPacketWriterActive to false. See mPacketWriterActive's javadoc.
+      mLock.lock();
+      try {
+        mPacketWriterActive = false;
+      } finally {
+        mLock.unlock();
+      }
       mRequest.close();
       mRequest = null;
       mPosToQueue = 0;
       mPosToWrite = 0;
     }
 
+    /**
+     * Cancels the write.
+     *
+     * @throws IOException if I/O related errors occur
+     */
     private void cancel() throws IOException {
-      mPacketWriterActive.set(false);
+      // Case 2 to set mPacketWriterActive to false. See mPacketWriterActive's javadoc.
+      mLock.lock();
+      try {
+        mPacketWriterActive = false;
+      } finally {
+        mLock.unlock();
+      }
       mRequest.cancel();
       mRequest = null;
       mPosToQueue = 0;

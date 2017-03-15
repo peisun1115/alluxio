@@ -44,6 +44,9 @@ public final class DataServerUFSFileWriteHandler extends DataServerWriteHandler 
 
     @Override
     public void close() throws IOException {}
+
+    @Override
+    public void cancel() throws IOException {}
   }
 
   /**

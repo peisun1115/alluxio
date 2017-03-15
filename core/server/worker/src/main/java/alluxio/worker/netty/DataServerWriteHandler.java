@@ -17,11 +17,12 @@ import alluxio.network.protocol.RPCMessage;
 import alluxio.network.protocol.RPCProtoMessage;
 import alluxio.network.protocol.databuffer.DataBuffer;
 import alluxio.proto.dataserver.Protocol;
+import alluxio.util.network.NettyUtils;
 
 import com.google.common.base.Preconditions;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -33,7 +34,7 @@ import java.io.IOException;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.locks.Condition;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 
 import javax.annotation.concurrent.GuardedBy;
@@ -62,33 +63,73 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
   /** The executor service to run the {@link PacketWriter}s. */
   private final ExecutorService mPacketWriterExecutor;
 
+  /**
+   * Special packets used to pass control information from the I/O thread to the packet writer
+   * thread. This makes the code cleaner. It can be replaced with booleans guarded by locks.
+   * Note: if anyone wants to change this to booleans, make sure EOF or CANCEL response is sent
+   * only once.
+   */
+  private static final ByteBuf EOF = Unpooled.buffer(0);
+  private static final ByteBuf CANCEL = Unpooled.buffer(0);
+
   private ReentrantLock mLock = new ReentrantLock();
   /**
    * The buffer for packets read from the channel. {@link java.util.concurrent.BlockingQueue} is
    * used here because we do not want the consumer thread to be blocked when the queue is empty.
+   * {@link java.util.concurrent.ConcurrentLinkedQueue} is not used because we want to make sure
+   * netty's autoread is set properly. Consider the following event sequence:
+   * t1: queue full. (I/O thread)
+   * t2: all packets are consumed from the queue. The queue became empty. (PacketWriter thread)
+   * t3: turn off the netty auto read.
+   *
+   * After t3, nothing will be read. We need synchronization when turning on/off auto-read and
+   * producing/consuming packets from the queue.
    */
   @GuardedBy("mLock")
   private Queue<ByteBuf> mPackets = new LinkedList<>();
-  /** Set to true if the packet writer is active. */
-  @GuardedBy("mLock")
-  private boolean mPacketWriterActive = false;
-  private Condition mPacketWriterInactive = mLock.newCondition();
 
+  /**
+   * Set to true if the packet writer is active. The following invariant must be maintained:
+   * 1. After this is set to true, there must be a thread that reads from mPackets at least once
+   *    and eventually sets mPacketWriterActive to false.
+   * 2. After this is set to false, there must be no thread that reads from mPackets.
+   *
+   * These invariants are achieved by this:
+   * 1. Whenever a packet is read, check
+   */
+  private AtomicBoolean mPacketWriterActive = new AtomicBoolean(false);
+
+  /**
+   * mRequest is only updated once per block/file read. It needs to be updated 'atomically' since
+   * it is not guarded by any lock. All fields in mRequest must be final.
+   */
   protected volatile WriteRequestInternal mRequest = null;
 
   protected abstract class WriteRequestInternal implements Closeable {
     // This ID can either be block ID or temp UFS file ID.
-    public long mId = -1;
-    public long mSessionId = -1;
+    public final long mId;
+    public final long mSessionId;
+
+    WriteRequestInternal(long id, long sessionId) {
+      mId = id;
+      mSessionId = sessionId;
+    }
+
+    /**
+     * Cancels the request.
+     *
+     * @throws IOException if I/O errors occur
+     */
+    public abstract void cancel() throws IOException;
   }
 
   /**
-   * The next pos to queue to the buffer. Updated by the packet reader. Mostly used to validate
-   * the validity of the request.
+   * The next pos to queue to the buffer. Updated by the packet reader (the netty I/O thread). It is
+   * used to validate the request.
    */
   private volatile long mPosToQueue = 0;
   /**
-   * The next pos to write to the block worker. Updated by the packet writer.
+   * The next pos to write to the block worker. Updated by the packet writer thread.
    */
   protected volatile long mPosToWrite = 0;
 
@@ -109,7 +150,8 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
     }
 
     RPCProtoMessage msg = (RPCProtoMessage) object;
-    updateRequest(msg);
+    Protocol.WriteRequest writeRequest = msg.getMessage().getMessage();
+    initializeRequest(msg);
 
     // Validate msg and return error if invalid. Init variables if necessary.
     String error = validateRequest(msg);
@@ -120,21 +162,24 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
 
     mLock.lock();
     try {
-      DataBuffer dataBuffer = msg.getPayloadDataBuffer();
       ByteBuf buf;
-      if (dataBuffer == null) {
-        buf = ctx.alloc().buffer(0, 0);
+      if (writeRequest.getEof()) {
+        buf = EOF;
+      } else if (writeRequest.getCancel()) {
+        buf = CANCEL;
       } else {
-        Preconditions.checkState(dataBuffer.getLength() > 0);
+        DataBuffer dataBuffer = msg.getPayloadDataBuffer();
+        Preconditions.checkState(dataBuffer != null && dataBuffer.getLength() > 0);
         assert dataBuffer.getNettyOutput() instanceof ByteBuf;
         buf = (ByteBuf) dataBuffer.getNettyOutput();
+        mPosToQueue += buf.readableBytes();
       }
-      mPosToQueue += buf.readableBytes();
-      mPackets.offer(buf);
-      if (!mPacketWriterActive) {
+      if (mPacketWriterActive.compareAndSet(false, true)) {
         mPacketWriterExecutor.submit(new PacketWriter(ctx));
-        mPacketWriterActive = true;
       }
+      // This packet must be pushed after mPacketWriterActive is reset. See the comment of
+      // mPacketWriterActive for the invariants we are trying to maintain.
+      mPackets.offer(buf);
       if (tooManyPacketsInFlight()) {
         ctx.channel().config().setAutoRead(false);
       }
@@ -152,7 +197,7 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
   @Override
   public void channelUnregistered(ChannelHandlerContext ctx) {
     try {
-      reset();
+      abortAbnormally();
     } catch (IOException e) {
       LOG.warn("Failed to reset the write request inside channelUnregistered.");
     }
@@ -199,23 +244,25 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
   }
 
   /**
-   * Writes a response to signify the success of the block write. Also resets the channel.
-   *
-   * @param channel the channel
+   * Aborts the write abnormally due to some error
+   * @throws IOException
    */
-  private void replySuccess(Channel channel) {
-    channel.writeAndFlush(RPCProtoMessage.createOkResponse(null))
-        .addListeners(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE, new ChannelFutureListener() {
-          @Override
-          public void operationComplete(ChannelFuture future) throws Exception {
-            reset();
-          }
-        });
-    if (!channel.config().isAutoRead()) {
-      channel.config().setAutoRead(true);
-      channel.read();
+  private void abortAbnormally() throws IOException {
+    mLock.lock();
+    try {
+      for (ByteBuf buf : mPackets) {
+        buf.release();
+      }
+    } finally {
+      mLock.unlock();
     }
-  }
+
+    WriteRequestInternal request = mRequest;
+    mRequest = null;
+    if (request != null) {
+      request.cancel();
+    }
+ }
 
   private void reset() throws IOException {
     if (mRequest != null) {
@@ -264,6 +311,7 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
       try {
         runInternal();
       } catch (Throwable e) {
+        // This should never happen.
         LOG.error("Failed to run PacketWriter.", e);
         throw e;
       }
@@ -278,9 +326,11 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
         mLock.lock();
         try {
           buf = mPackets.poll();
+          if (buf == EOF || buf == CANCEL) {
+            Preconditions.checkState(mPackets.isEmpty());
+          }
           if (buf == null) {
-            mPacketWriterActive = false;
-            mPacketWriterInactive.signal();
+            mPacketWriterActive.compareAndSet(true, false);
             break;
           }
           if (!tooManyPacketsInFlight()) {
@@ -292,23 +342,70 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
         }
 
         try {
-          if (buf.readableBytes() == 0) {
-            // This is the last packet.
+          // NOTE: We must break if it is EOF or CANCEL to maintain the invariant
+          // that whenever mPacketWriterActive is false, no one should be polling from
+          // mPackets.
+          // Without breaking here, the following corner case can happen:
+          // t1:
+          if (buf == EOF) {
+            complete();
             replySuccess(mCtx.channel());
             break;
+          } else if (buf == CANCEL) {
+            cancel();
+            replyCancel(mCtx.channel());
+            break;
+          } else {
+            mPosToWrite += buf.readableBytes();
+            incrementMetrics(buf.readableBytes());
+            writeBuf(buf, mPosToWrite);
           }
-          mPosToWrite += buf.readableBytes();
-          incrementMetrics(buf.readableBytes());
-          writeBuf(buf, mPosToWrite);
         } catch (Exception e) {
-          mPacketWriterActive = false;
-          mPacketWriterInactive.signal();
+          mPacketWriterActive.set(false);
           exceptionCaught(mCtx, e);
           break;
         } finally {
           buf.release();
         }
       }
+    }
+
+    private void complete() throws IOException {
+      mPacketWriterActive.set(false);
+      mRequest.close();
+      mRequest = null;
+      mPosToQueue = 0;
+      mPosToWrite = 0;
+    }
+
+    private void cancel() throws IOException {
+      mPacketWriterActive.set(false);
+      mRequest.cancel();
+      mRequest = null;
+      mPosToQueue = 0;
+      mPosToWrite = 0;
+    }
+
+    /**
+     * Writes a response to signify the success of the write request.
+     *
+     * @param channel the channel
+     */
+    private void replySuccess(Channel channel) {
+      channel.writeAndFlush(RPCProtoMessage.createOkResponse(null))
+          .addListeners(ChannelFutureListener.CLOSE_ON_FAILURE);
+      NettyUtils.enableAutoRead(channel);
+    }
+
+    /**
+     * Writes a response to signify the successful cancellation of the write request.
+     *
+     * @param channel the channel
+     */
+    private void replyCancel(Channel channel) {
+      channel.writeAndFlush(RPCProtoMessage.createCancelResponse())
+          .addListeners(ChannelFutureListener.CLOSE_ON_FAILURE);
+      NettyUtils.enableAutoRead(channel);
     }
   }
 
@@ -332,7 +429,7 @@ public abstract class DataServerWriteHandler extends ChannelInboundHandlerAdapte
    * @param msg the block write request
    * @throws Exception if it fails to initialize
    */
-  protected void updateRequest(RPCProtoMessage msg) throws Exception {
+  protected void initializeRequest(RPCProtoMessage msg) throws Exception {
     if (mRequest == null) {
       mPosToQueue = 0;
       mPosToWrite = 0;

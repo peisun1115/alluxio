@@ -13,7 +13,7 @@ package alluxio.hadoop.fs;
 
 import alluxio.Constants;
 import alluxio.LocalAlluxioClusterResource;
-import alluxio.hadoop.ConfUtils;
+import alluxio.hadoop.HadoopConfigurationUtils;
 import alluxio.hadoop.FileSystem;
 
 import org.apache.hadoop.fs.FSDataInputStream;
@@ -115,6 +115,9 @@ public class DFSIOIntegrationTest implements Tool {
     org.apache.hadoop.conf.Configuration.addDefaultResource("mapred-site.xml");
   }
 
+  /**
+   * Represents different types of tests.
+   */
   private enum TestType {
     TEST_TYPE_READ("read"), TEST_TYPE_WRITE("write"), TEST_TYPE_CLEANUP("cleanup"),
         TEST_TYPE_APPEND("append"), TEST_TYPE_READ_RANDOM("random read"),
@@ -133,6 +136,9 @@ public class DFSIOIntegrationTest implements Tool {
     }
   }
 
+  /**
+   * Represents for 5 multiple bytes unit.
+   */
   enum ByteMultiple {
     B(1L), KB(0x400L), MB(0x100000L), GB(0x40000000L), TB(0x10000000000L);
 
@@ -216,7 +222,7 @@ public class DFSIOIntegrationTest implements Tool {
     sBench.getConf().set("fs." + Constants.SCHEME + ".impl", FileSystem.class.getName());
 
     // Store Alluxio configuration in Hadoop configuration
-    ConfUtils.storeToHadoopConfiguration(sBench.getConf());
+    HadoopConfigurationUtils.storeToHadoopConfiguration(sBench.getConf());
 
     org.apache.hadoop.fs.FileSystem fs =
         org.apache.hadoop.fs.FileSystem.get(sLocalAlluxioClusterUri, sBench.getConf());
@@ -674,6 +680,11 @@ public class DFSIOIntegrationTest implements Tool {
     ioer.close();
   }
 
+  /**
+   * Runs the integration test for DFS IO.
+   *
+   * @param args arguments
+   */
   public static void main(String[] args) {
     DFSIOIntegrationTest bench = new DFSIOIntegrationTest();
     int res;

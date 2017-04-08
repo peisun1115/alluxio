@@ -30,15 +30,16 @@ import javax.annotation.concurrent.NotThreadSafe;
  * {@link DataServerUFSFileWriteHandler}.
  */
 @NotThreadSafe
-public final class DataServerUFSFileWriteHandler extends DataServerWriteHandler {
+final class DataServerUFSFileWriteHandler extends DataServerWriteHandler {
   /** Filesystem worker which handles file level operations for the worker. */
   private final FileSystemWorker mWorker;
+  private static final long UNUSED_SESSION_ID = -1;
 
   private class FileWriteRequestInternal extends WriteRequestInternal {
-    public OutputStream mOutputStream;
+    OutputStream mOutputStream;
 
-    public FileWriteRequestInternal(Protocol.WriteRequest request) throws Exception {
-      super(request.getId(), -1);
+    FileWriteRequestInternal(Protocol.WriteRequest request) throws Exception {
+      super(request.getId(), UNUSED_SESSION_ID);
       mOutputStream = mWorker.getUfsOutputStream(mId);
     }
 
@@ -46,7 +47,7 @@ public final class DataServerUFSFileWriteHandler extends DataServerWriteHandler 
     public void close() throws IOException {}
 
     @Override
-    public void cancel() throws IOException {}
+    void cancel() throws IOException {}
   }
 
   /**
@@ -55,7 +56,7 @@ public final class DataServerUFSFileWriteHandler extends DataServerWriteHandler 
    * @param executorService the executor service to run {@link PacketWriter}s
    * @param worker the file system worker
    */
-  public DataServerUFSFileWriteHandler(ExecutorService executorService, FileSystemWorker worker) {
+  DataServerUFSFileWriteHandler(ExecutorService executorService, FileSystemWorker worker) {
     super(executorService);
     mWorker = worker;
   }

@@ -136,10 +136,11 @@ public final class AlluxioWorkerProcess implements WorkerProcess {
       mDataServer = DataServer.Factory
           .create(NetworkAddressUtils.getBindAddress(ServiceType.WORKER_DATA), this);
 
+      String domainSocketPath =
+          Configuration.get(PropertyKey.WORKER_DATA_SERVER_DOMAIN_SOCKET_ADDRESS);
+      LOG.info("Domain socket data server is enabled at {}.", domainSocketPath);
+
       if (isDomainSocketEnabled()) {
-        String domainSocketPath =
-            Configuration.get(PropertyKey.WORKER_DATA_SERVER_DOMAIN_SOCKET_ADDRESS);
-        LOG.info("Domain socket data server is enabled at {}.", domainSocketPath);
         mDomainSocketDataServer =
             DataServer.Factory.create(new DomainSocketAddress(domainSocketPath), this);
       }

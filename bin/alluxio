@@ -276,8 +276,8 @@ function main {
     ALLUXIO_SHELL_JAVA_OPTS+=" -Dalluxio.logger.type=Console"
     runJavaClass "$@"
   ;;
-  "runMiniBenchmark")
-    CLASS="alluxio.cli.MiniBenchmark"
+  "IO")
+    CLASS="alluxio.cli.ConcurrentIOBenchmark"
     ALLUXIO_SHELL_JAVA_OPTS+=" -Dalluxio.logger.type=Console"
     runJavaClass "$@"
     ;;

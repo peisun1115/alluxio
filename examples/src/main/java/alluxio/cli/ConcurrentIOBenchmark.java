@@ -1,17 +1,17 @@
 package alluxio.cli;
 
+import alluxio.AlluxioURI;
+import alluxio.client.file.FileSystem;
+import alluxio.client.file.URIStatus;
+import alluxio.client.file.options.DeleteOptions;
+
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 import com.beust.jcommander.internal.Lists;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 
 import java.io.DataOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -21,88 +21,59 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 public class ConcurrentIOBenchmark {
-  @Parameter(
-      names = {"--readers", "-r"},
-      description = "Number of concurrent readers.",
-      required = true
-  )
+  @Parameter(names = {"--readers", "-r"}, description = "Number of concurrent readers.",
+      required = true)
   private int mReaders;
 
-  @Parameter(
-      names = {"--read-directory", "-rd"},
-      description="Directory to read files from. Ignored if number of readers is 0.",
-      required = true
-  )
+  @Parameter(names = {"--read-directory", "-rd"},
+      description = "Directory to read files from. Ignored if number of readers is 0.",
+      required = true)
   private String mReadDirectory;
 
-  @Parameter(
-      names = {"--read-buffer-size", "-rbs"},
+  @Parameter(names = {"--read-buffer-size", "-rbs"},
       description = "Size of the buffer to use when reading. Ignored if number of readers is 0.",
-      required = true
-  )
+      required = true)
   private int mReadBufferSize;
 
-  @Parameter(
-      names = {"--writers", "-w"},
-      description = "Number of concurrent writers.",
-      required = true
-  )
+  @Parameter(names = {"--writers", "-w"}, description = "Number of concurrent writers.",
+      required = true)
   private int mWriters;
 
-  @Parameter(
-      names = {"--files-to-write", "-ftw"},
+  @Parameter(names = {"--files-to-write", "-ftw"},
       description = "Total number of files to write. Ignored if number of writers is 0.",
-      required = true
-  )
+      required = true)
   private int mFilesToWrite;
 
-  @Parameter(
-      names = {"--file-size", "-fs"},
+  @Parameter(names = {"--file-size", "-fs"},
       description = "Size of the file to write. Ignored if number of writers is 0.",
-      required = true
-  )
+      required = true)
   private int mFileSize;
 
-  @Parameter(
-      names = {"--write-directory", "-wd"},
+  @Parameter(names = {"--write-directory", "-wd"},
       description = "Directory to write the files to. Ignored if number of writers is 0.",
-      required = true
-  )
+      required = true)
   private String mWriteDirectory;
 
-  @Parameter(
-      names = {"--write-buffer-size", "-wbs"},
+  @Parameter(names = {"--write-buffer-size", "-wbs"},
       description = "How large of a buffer to use when writing. Ignored if number of writers is 0.",
-      required = true
-  )
+      required = true)
   private int mWriteBufferSize;
 
-  @Parameter(
-      names = {"--results-output-directory", "-rod"},
-      description = "Directory to write the results to.",
-      required = true
-  )
+  @Parameter(names = {"--results-output-directory", "-rod"},
+      description = "Directory to write the results to.", required = true)
   private String mResultsDirectory;
 
-  @Parameter(
-      names = {"--wait-on-directory", "-wod"},
-      description = "The Alluxio path to wait on for synchronized starts with other processes."
-  )
+  @Parameter(names = {"--wait-on-directory", "-wod"},
+      description = "The Alluxio path to wait on for synchronized starts with other processes.")
   private String mWaitOnDirectory;
 
-  @Parameter(
-      names = {"--processes", "-p"},
-      description = "Number of processes to wait on."
-  )
+  @Parameter(names = {"--processes", "-p"}, description = "Number of processes to wait on.")
   private int mProcesses;
 
-  @Parameter(
-      names = {"--sleep", "-s"},
-      description = "Time to sleep between writes."
-  )
+  @Parameter(names = {"--sleep", "-s"}, description = "Time to sleep between writes.")
   private long mSleep;
 
-  private Path mRegistrationPath;
+  private AlluxioURI mRegistrationPath;
 
   private long mId;
 
@@ -155,14 +126,13 @@ public class ConcurrentIOBenchmark {
 
     // Setup Readers
     if (mReaders > 0) {
-      FileSystem readFs = FileSystem.get(new URI(mReadDirectory), new Configuration());
-      FileStatus[] statuses = readFs.listStatus(new Path(mReadDirectory));
-      filesToRead = statuses.length;
-      int filesPerThread = statuses.length / mReaders;
-      List<Path> pathsToRead = new ArrayList<>();
-      for (FileStatus status : statuses) {
-        bytesToRead += status.getLen();
-        pathsToRead.add(status.getPath());
+      FileSystem readFs = FileSystem.Factory.get();
+      List<URIStatus> statuses = readFs.listStatus(new AlluxioURI(mReadDirectory));
+      int filesPerThread = statuses.size() / mReaders;
+      List<AlluxioURI> pathsToRead = new ArrayList<>();
+      for (URIStatus status : statuses) {
+        bytesToRead += status.getLength();
+        pathsToRead.add(new AlluxioURI(status.getPath()));
         // Got enough files for one thread to read
         if (pathsToRead.size() == filesPerThread) {
           Reader reader = new Reader(Lists.newArrayList(pathsToRead), mReadBufferSize, readFs);
@@ -181,12 +151,12 @@ public class ConcurrentIOBenchmark {
 
     // Setup Writers
     if (mWriters > 0) {
-      FileSystem writeFs = FileSystem.get(new URI(mWriteDirectory), new Configuration());
+      FileSystem writeFs = FileSystem.Factory.get();
       mWriteDirectory = normalizeDirectory(mWriteDirectory);
       // Delete the existing files first, if any
-      Path writeDir = new Path(mWriteDirectory);
+      AlluxioURI writeDir = new AlluxioURI(mWriteDirectory);
       if (writeFs.exists(writeDir)) {
-        writeFs.delete(writeDir, true);
+        writeFs.delete(writeDir, DeleteOptions.defaults().setRecursive(true));
         Thread.sleep(mSleep);
       }
       mWriters = Math.min(mWriters, mFilesToWrite);
@@ -208,12 +178,12 @@ public class ConcurrentIOBenchmark {
     }
     mId = new Random().nextLong();
     String waitDirectory = mWaitOnDirectory + "/" + iteration;
-    FileSystem fs = FileSystem.get(new URI(waitDirectory), new Configuration());
-    mRegistrationPath = new Path(waitDirectory + "/" + mId);
-    fs.create(mRegistrationPath).close();
+    FileSystem fs = FileSystem.Factory.get();
+    mRegistrationPath = new AlluxioURI(waitDirectory + "/" + mId);
+    fs.createFile(mRegistrationPath).close();
 
-    for (int files = fs.listStatus(new Path(waitDirectory)).length; files != mProcesses; files =
-        fs.listStatus(new Path(waitDirectory)).length) {
+    for (int files = fs.listStatus(new AlluxioURI(waitDirectory)).size(); files != mProcesses;
+        files = fs.listStatus(new AlluxioURI(waitDirectory)).size()) {
       if (files > mProcesses) {
         System.out.println("WARNING: Number of control files greater than expected.");
       }
@@ -281,10 +251,10 @@ public class ConcurrentIOBenchmark {
       sb.append("Read Results\n");
       sb.append("----------------------\n");
       sb.append(String.format("Read %d files in %fs.\n", read.mFilesToRead, c * maxReaderTime));
-      sb.append(String.format("Aggregate Throughput: %f MB/s\n", c * read.mBytesToRead * mReaders
-          / readerTime));
-      sb.append(String.format("Average Throughput per Thread: %f MB/s\n", c * read.mBytesToRead
-          / readerTime));
+      sb.append(String.format("Aggregate Throughput: %f MB/s\n",
+          c * read.mBytesToRead * mReaders / readerTime));
+      sb.append(String
+          .format("Average Throughput per Thread: %f MB/s\n", c * read.mBytesToRead / readerTime));
     } else {
       sb.append("----------------------\n");
       sb.append("Read Results\n");
@@ -298,10 +268,10 @@ public class ConcurrentIOBenchmark {
       sb.append("Write Results\n");
       sb.append("----------------------\n");
       sb.append(String.format("Wrote %d files in %fs.\n", mFilesToWrite, c * maxWriterTime));
-      sb.append(String.format("Aggregate Throughput: %f MB/s\n", c * mFilesToWrite
-          * mFileSize * mWriters / writerTime));
-      sb.append(String.format("Average Throughput per Thread: %f MB/s\n", c * mFilesToWrite
-          * mFileSize / writerTime));
+      sb.append(String.format("Aggregate Throughput: %f MB/s\n",
+          c * mFilesToWrite * mFileSize * mWriters / writerTime));
+      sb.append(String.format("Average Throughput per Thread: %f MB/s\n",
+          c * mFilesToWrite * mFileSize / writerTime));
 
     } else {
       sb.append("----------------------\n");
@@ -319,25 +289,26 @@ public class ConcurrentIOBenchmark {
     }
     String waitDirectory = mWaitOnDirectory + "/" + iteration;
     Thread.sleep(1000);
-    FileSystem fs = FileSystem.get(new URI(waitDirectory), new Configuration());
-    fs.delete(mRegistrationPath, false);
+    FileSystem fs = FileSystem.Factory.get();
+    fs.delete(mRegistrationPath, DeleteOptions.defaults().setRecursive(true));
 
-    for (int files = fs.listStatus(new Path(waitDirectory)).length; files != 0; files =
-        fs.listStatus(new Path(waitDirectory)).length) {
+    for (int files = fs.listStatus(new AlluxioURI(waitDirectory)).size(); files != 0;
+        files = fs.listStatus(new AlluxioURI(waitDirectory)).size()) {
       Thread.sleep(1000);
     }
   }
 
   private void writeResults() throws Exception {
-    FileSystem fs = FileSystem.get(new URI(mResultsDirectory), new Configuration());
-    if (!fs.exists(new Path(mResultsDirectory))) {
-      fs.mkdirs(new Path(mResultsDirectory));
+    FileSystem fs = FileSystem.Factory.get();
+    if (!fs.exists(new AlluxioURI(mResultsDirectory))) {
+      fs.createDirectory(new AlluxioURI(mResultsDirectory));
     }
-    Path outputFile = new Path(mResultsDirectory + "/" + mId + ".txt");
+    AlluxioURI outputFile = new AlluxioURI(mResultsDirectory + "/" + mId + ".txt");
     if (fs.exists(outputFile)) {
-      fs.delete(outputFile, false);
+      fs.delete(outputFile, DeleteOptions.defaults().setRecursive(true));
     }
-    DataOutputStream stream = fs.create(new Path(mResultsDirectory + "/" + mId + ".txt"));
+    DataOutputStream stream =
+        new DataOutputStream(fs.createFile(new AlluxioURI(mResultsDirectory + "/" + mId + ".txt")));
     stream.writeBytes(mResultOutput);
     stream.close();
   }
@@ -349,9 +320,9 @@ public class ConcurrentIOBenchmark {
   private class Reader implements Callable<Long> {
     private final FileSystem mFileSystem;
     private byte[] mBuffer;
-    private final List<Path> mPathsToRead;
+    private final List<AlluxioURI> mPathsToRead;
 
-    public Reader(List<Path> paths, int bufferSize, FileSystem fs) throws Exception {
+    public Reader(List<AlluxioURI> paths, int bufferSize, FileSystem fs) throws Exception {
       mFileSystem = fs;
       mBuffer = new byte[bufferSize];
       mPathsToRead = paths;
@@ -360,9 +331,11 @@ public class ConcurrentIOBenchmark {
     @Override
     public Long call() throws Exception {
       long start = System.currentTimeMillis();
-      for (Path toRead : mPathsToRead) {
-        InputStream in = mFileSystem.open(toRead);
-        while (in.read(mBuffer) != -1);
+      for (AlluxioURI toRead : mPathsToRead) {
+        InputStream in = mFileSystem.openFile(toRead);
+        while (in.read(mBuffer) != -1) {
+          ;
+        }
         in.close();
       }
       return System.currentTimeMillis() - start;
@@ -403,7 +376,8 @@ public class ConcurrentIOBenchmark {
     public Long call() throws Exception {
       long start = System.currentTimeMillis();
       for (int i = 0; i < mNumFiles; i++) {
-        OutputStream out = mFileSystem.create(new Path(mPath.concat("_" + filesCreated++)));
+        OutputStream out =
+            mFileSystem.createFile(new AlluxioURI(mPath.concat("_" + filesCreated++)));
         int bytesToWrite = mFileSize;
         while (bytesToWrite > 0) {
           out.write(mData, 0, Math.min(mData.length, bytesToWrite));

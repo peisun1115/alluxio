@@ -25,14 +25,12 @@ import javax.annotation.concurrent.ThreadSafe;
 @ThreadSafe
 public enum ExceptionMessage {
   // general
-  DEPENDENCY_CYCLE("Dependency cycle encountered"),
   INVALID_PREFIX("Parent path {0} is not a prefix of child {1}"),
   NOT_SUPPORTED("This method is not supported"),
   PATH_DOES_NOT_EXIST("Path {0} does not exist"),
   PATH_MUST_BE_FILE("Path {0} must be a file"),
   PATH_MUST_BE_DIRECTORY("Path {0} must be a directory"),
   PATH_INVALID("Path {0} is invalid"),
-  RESOURCE_UNAVAILABLE("Resource unavailable"),
 
   // general block
   CANNOT_REQUEST_SPACE("Not enough space left on worker {0} to store blockId {1,number,#}."),
@@ -48,6 +46,8 @@ public enum ExceptionMessage {
   LOCK_RECORD_NOT_FOUND_FOR_BLOCK_AND_SESSION(
       "no lock is found for blockId {0,number,#} for sessionId {1,number,#}"),
   LOCK_RECORD_NOT_FOUND_FOR_LOCK_ID("lockId {0,number,#} has no lock record"),
+  LOCK_NOT_RELEASED("lockId {0,number,#} is not released."),
+  SESSION_NOT_CLOSED("session {0,number,#} is not closed."),
 
   // block metadata manager and view
   BLOCK_META_NOT_FOUND("BlockMeta not found for blockId {0,number,#}"),
@@ -116,6 +116,9 @@ public enum ExceptionMessage {
   // file
   CANNOT_READ_DIRECTORY("Cannot read from {0} because it is a directory"),
   DELETE_FAILED_UFS("Failed to delete {0} from the under file system"),
+  DELETE_FAILED_DIRECTORY_NOT_IN_SYNC(
+      "Cannot delete {0} because the UFS has contents not loaded into Alluxio. Sync Alluxio with "
+          + "UFS or run delete with unchecked flag to forcibly delete"),
   DELETE_NONEMPTY_DIRECTORY_NONRECURSIVE(
       "Cannot delete non-empty directory {0} because recursive is set to false"),
   DELETE_ROOT_DIRECTORY("Cannot delete the root directory"),
@@ -142,6 +145,10 @@ public enum ExceptionMessage {
   RENAME_CANNOT_BE_TO_ROOT("Cannot rename a path to the root directory"),
   RENAME_CANNOT_BE_TO_SUBDIRECTORY("Cannot rename because {0} is a prefix of {1}"),
   ROOT_CANNOT_BE_RENAMED("The root directory cannot be renamed"),
+  JOURNAL_ENTRY_MISSING(
+      "Journal entries are missing between sequence number {0} (inclusive) and {1} (exclusive)."),
+  JOURNAL_ENTRY_TRUNCATED_UNEXPECTEDLY(
+      "Journal entry [sequence number {0}] is truncated unexpectedly."),
 
   // block master
   NO_WORKER_FOUND("No worker with workerId {0,number,#} is found"),
@@ -174,6 +181,7 @@ public enum ExceptionMessage {
 
   // configuration
   DEFAULT_PROPERTIES_FILE_DOES_NOT_EXIST("The default Alluxio properties file does not exist"),
+  INVALID_CONFIGURATION_KEY("Invalid property key {0}"),
   INVALID_CONFIGURATION_VALUE("Invalid value {0} for configuration key {1}"),
   KEY_NOT_BOOLEAN("Configuration cannot evaluate key {0} as boolean"),
   KEY_NOT_BYTES("Configuration cannot evaluate key {0} as bytes"),

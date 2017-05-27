@@ -21,16 +21,17 @@ BIN=$(cd "$( dirname "$0" )"; pwd)
 
 USAGE="Usage: alluxio-start.sh [-hNw] ACTION [MOPT] [-f]
 Where ACTION is one of:
-  all [MOPT]     \tStart master and all proxies and workers.
-  local [MOPT]   \tStart a master, proxy, and worker locally.
-  master         \tStart the master on this node.
-  proxy          \tStart the proxy on this node.
-  proxies        \tStart proxies on worker nodes.
-  safe           \tScript will run continuously and start the master if it's not running.
-  worker [MOPT]  \tStart a worker on this node.
-  workers [MOPT] \tStart workers on worker nodes.
-  restart_worker \tRestart a failed worker on this node.
-  restart_workers\tRestart any failed workers on worker nodes.
+  all [MOPT]         \tStart all masters, proxies, and workers.
+  local [MOPT]       \tStart all processes locally.
+  master             \tStart the master on this node.
+  masters            \tStart masters on master nodes.
+  proxy              \tStart the proxy on this node.
+  proxies            \tStart proxies on master and worker nodes.
+  safe               \tScript will run continuously and start the master if it's not running.
+  worker [MOPT]      \tStart a worker on this node.
+  workers [MOPT]     \tStart workers on worker nodes.
+  restart_worker     \tRestart a failed worker on this node.
+  restart_workers    \tRestart any failed workers on worker nodes.
 
 MOPT (Mount Option) is one of:
   Mount    \tMount the configured RamFS. Notice: this will format the existing RamFS.
@@ -57,6 +58,7 @@ get_env() {
   DEFAULT_LIBEXEC_DIR="${BIN}"/../libexec
   ALLUXIO_LIBEXEC_DIR=${ALLUXIO_LIBEXEC_DIR:-${DEFAULT_LIBEXEC_DIR}}
   . ${ALLUXIO_LIBEXEC_DIR}/alluxio-config.sh
+  CLASSPATH=${ALLUXIO_SERVER_CLASSPATH}
 }
 
 # Pass ram folder to check as $1
@@ -132,23 +134,37 @@ do_mount() {
 }
 
 stop() {
-  ${BIN}/alluxio-stop.sh all
+  ${BIN}/alluxio-stop.sh $1
 }
 
-
 start_master() {
-  if [[ -z ${ALLUXIO_MASTER_JAVA_OPTS} ]]; then
-    ALLUXIO_MASTER_JAVA_OPTS=${ALLUXIO_JAVA_OPTS}
-  fi
-
   if [[ "$1" == "-f" ]]; then
     ${LAUNCHER} ${BIN}/alluxio format
   fi
 
-  echo "Starting master @ $(hostname -f). Logging to ${ALLUXIO_LOGS_DIR}"
-  (nohup "${JAVA}" -cp ${CLASSPATH} \
-   ${ALLUXIO_MASTER_JAVA_OPTS} \
-   alluxio.master.AlluxioMaster > ${ALLUXIO_LOGS_DIR}/master.out 2>&1) &
+  if [[ ${ALLUXIO_MASTER_SECONDARY} == "true" ]]; then
+    if [[ -z ${ALLUXIO_SECONDARY_MASTER_JAVA_OPTS} ]]; then
+      ALLUXIO_SECONDARY_MASTER_JAVA_OPTS=${ALLUXIO_JAVA_OPTS}
+    fi
+
+    echo "Starting secondary master @ $(hostname -f). Logging to ${ALLUXIO_LOGS_DIR}"
+    (nohup "${JAVA}" -cp ${CLASSPATH} \
+     ${ALLUXIO_SECONDARY_MASTER_JAVA_OPTS} \
+     alluxio.master.AlluxioSecondaryMaster > ${ALLUXIO_LOGS_DIR}/secondary_master.out 2>&1) &
+  else
+    if [[ -z ${ALLUXIO_MASTER_JAVA_OPTS} ]]; then
+      ALLUXIO_MASTER_JAVA_OPTS=${ALLUXIO_JAVA_OPTS}
+    fi
+
+    echo "Starting master @ $(hostname -f). Logging to ${ALLUXIO_LOGS_DIR}"
+    (nohup "${JAVA}" -cp ${CLASSPATH} \
+     ${ALLUXIO_MASTER_JAVA_OPTS} \
+     alluxio.master.AlluxioMaster > ${ALLUXIO_LOGS_DIR}/master.out 2>&1) &
+  fi
+}
+
+start_masters() {
+  ${LAUNCHER} "${BIN}/alluxio-masters.sh" "${BIN}/alluxio-start.sh" "master" $1
 }
 
 start_proxy() {
@@ -160,6 +176,11 @@ start_proxy() {
   (nohup "${JAVA}" -cp ${CLASSPATH} \
    ${ALLUXIO_PROXY_JAVA_OPTS} \
    alluxio.proxy.AlluxioProxy > ${ALLUXIO_LOGS_DIR}/proxy.out 2>&1) &
+}
+
+start_proxies() {
+  ${LAUNCHER} "${BIN}/alluxio-masters.sh" "${BIN}/alluxio-start.sh" "proxy"
+  ${LAUNCHER} "${BIN}/alluxio-workers.sh" "${BIN}/alluxio-start.sh" "proxy"
 }
 
 start_worker() {
@@ -179,6 +200,10 @@ start_worker() {
    alluxio.worker.AlluxioWorker > ${ALLUXIO_LOGS_DIR}/worker.out 2>&1 ) &
 }
 
+start_workers() {
+  ${LAUNCHER} "${BIN}/alluxio-workers.sh" "${BIN}/alluxio-start.sh" "worker" $1
+}
+
 restart_worker() {
   if [[ -z ${ALLUXIO_WORKER_JAVA_OPTS} ]]; then
     ALLUXIO_WORKER_JAVA_OPTS=${ALLUXIO_JAVA_OPTS}
@@ -195,14 +220,6 @@ restart_worker() {
 
 restart_workers() {
   ${LAUNCHER} "${BIN}/alluxio-workers.sh" "${BIN}/alluxio-start.sh" "restart_worker"
-}
-
-start_proxies() {
-  ${LAUNCHER} "${BIN}/alluxio-workers.sh" "${BIN}/alluxio-start.sh" "proxy"
-}
-
-start_workers() {
-  ${LAUNCHER} "${BIN}/alluxio-workers.sh" "${BIN}/alluxio-start.sh" "worker" $1
 }
 
 run_safe() {
@@ -279,26 +296,32 @@ main() {
   case "${ACTION}" in
     all)
       if [[ "${killonstart}" != "no" ]]; then
-        stop
+        stop all
+        sleep 1
       fi
-      start_master "${FORMAT}"
-      start_proxy
+      start_masters "${FORMAT}"
       sleep 2
       start_workers "${MOPT}"
       start_proxies
       ;;
     local)
       if [[ "${killonstart}" != "no" ]]; then
-        stop
+        stop local
         sleep 1
       fi
       start_master "${FORMAT}"
+      ALLUXIO_MASTER_SECONDARY=true
+      start_master
+      ALLUXIO_MASTER_SECONDARY=false
       sleep 2
       start_worker "${MOPT}"
       start_proxy
       ;;
     master)
       start_master "${FORMAT}"
+      ;;
+    masters)
+      start_masters
       ;;
     proxy)
       start_proxy

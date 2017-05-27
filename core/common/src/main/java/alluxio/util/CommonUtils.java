@@ -11,12 +11,18 @@
 
 package alluxio.util;
 
+import alluxio.exception.status.AlluxioStatusException;
+import alluxio.exception.status.Status;
+import alluxio.proto.dataserver.Protocol;
 import alluxio.security.group.CachedGroupMapping;
 import alluxio.security.group.GroupMappingService;
 import alluxio.util.ShellUtils.ExitCodeException;
+import alluxio.util.network.NetworkAddressUtils;
+import alluxio.wire.WorkerNetAddress;
 
 import com.google.common.base.Function;
 import com.google.common.base.Splitter;
+import com.google.common.base.Throwables;
 import com.google.common.io.Closer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,10 +31,19 @@ import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Random;
 import java.util.StringTokenizer;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import javax.annotation.concurrent.ThreadSafe;
 
@@ -195,7 +210,6 @@ public final class CommonUtils {
    *
    * @param user user name
    * @return the groups list that the {@code user} belongs to. The primary group is returned first
-   * @throws IOException if encounter any error when running the command
    */
   public static List<String> getUnixGroups(String user) throws IOException {
     String result;
@@ -274,7 +288,6 @@ public final class CommonUtils {
    *
    * @param userName Alluxio user name
    * @return primary group name
-   * @throws IOException if getting group failed
    */
   public static String getPrimaryGroupName(String userName) throws IOException {
     List<String> groups = getGroups(userName);
@@ -286,7 +299,6 @@ public final class CommonUtils {
    *
    * @param userName Alluxio user name
    * @return the group list of the user
-   * @throws IOException if getting group list failed
    */
   public static List<String> getGroups(String userName) throws IOException {
     GroupMappingService groupMappingService = GroupMappingService.Factory.get();
@@ -325,6 +337,21 @@ public final class CommonUtils {
   }
 
   /**
+   * Strips the leading and trailing quotes from the given string.
+   * E.g. return 'alluxio' for input '"alluxio"'.
+   *
+   * @param str The string to strip
+   * @return The string without the leading and trailing quotes
+   */
+  public static String stripLeadingAndTrailingQuotes(String str) {
+    int length = str.length();
+    if (length > 1 && str.startsWith("\"") && str.endsWith("\"")) {
+      str = str.substring(1, length - 1);
+    }
+    return str;
+  }
+
+  /**
    * Gets the value with a given key from a static key/value mapping in string format. E.g. with
    * mapping "id1=user1;id2=user2", it returns "user1" with key "id1". It returns null if the given
    * key does not exist in the mapping.
@@ -356,19 +383,6 @@ public final class CommonUtils {
   }
 
   /**
-   * Closes a closer and ignores the IOException if it throws one.
-   *
-   * @param closer the closer
-   */
-  public static void closeQuitely(Closer closer) {
-    try {
-      closer.close();
-    } catch (IOException e) {
-      // Ignore.
-    }
-  }
-
-  /**
    * Casts a {@link Throwable} to an {@link IOException}.
    *
    * @param e the throwable
@@ -380,6 +394,145 @@ public final class CommonUtils {
     } else {
       return new IOException(e);
     }
+  }
+
+  /**
+   * Returns an iterator that iterates on a single element.
+   *
+   * @param element the element
+   * @param <T> the type of the element
+   * @return the iterator
+   */
+  public static <T> Iterator<T> singleElementIterator(final T element) {
+    return new Iterator<T>() {
+      private boolean mHasNext = true;
+
+      @Override
+      public boolean hasNext() {
+        return mHasNext;
+      }
+
+      @Override
+      public T next() {
+        if (!hasNext()) {
+          throw new NoSuchElementException();
+        }
+        mHasNext = false;
+        return element;
+      }
+
+      @Override
+      public void remove() {
+        throw new UnsupportedOperationException("remove is not supported.");
+      }
+    };
+  }
+
+  /**
+   * Executes the given callables, waiting for them to complete (or time out). If a callable throws
+   * an exception, that exception will be re-thrown from this method.
+   *
+   * @param callables the callables to execute
+   * @param timeout the maximum time to wait
+   * @param unit the time unit of the timeout argument
+   * @param <T> the return type of the callables
+   * @throws Exception if any of the callables throws an exception
+   */
+  public static <T> void invokeAll(List<Callable<T>> callables, long timeout, TimeUnit unit)
+      throws TimeoutException, Exception {
+    ExecutorService service = Executors.newCachedThreadPool();
+    try {
+      List<Future<T>> results = service.invokeAll(callables, timeout, unit);
+      service.shutdownNow();
+      propagateExceptions(results);
+      for (Future<T> result : results) {
+        if (result.isCancelled()) {
+          throw new TimeoutException("Timed out invoking task");
+        }
+      }
+      // All tasks are guaranteed to have finished at this point. If they were still running, their
+      // futures would have been canceled by invokeAll.
+      if (!service.awaitTermination(1, TimeUnit.SECONDS)) {
+        throw new IllegalStateException("Failed to shutdown service");
+      }
+    } catch (InterruptedException e) {
+      service.shutdownNow();
+      Thread.currentThread().interrupt();
+      throw new RuntimeException(e);
+    }
+  }
+
+  /**
+   * Checks whether any of the futures have completed with an exception, propagating the exception
+   * if any is found.
+   *
+   * @param futures the futures to check
+   * @throws Exception if one of the futures completed with an exception
+   */
+  private static <T> void propagateExceptions(List<Future<T>> futures) throws Exception {
+    for (Future<?> future : futures) {
+      try {
+        if (future.isDone() && !future.isCancelled()) {
+          future.get();
+        }
+      } catch (ExecutionException e) {
+        Throwable cause = e.getCause();
+        Throwables.propagateIfPossible(cause);
+        if (cause instanceof Exception) {
+          throw (Exception) cause;
+        }
+        throw new RuntimeException(cause);
+      }
+    }
+  }
+
+  /**
+   * Closes the Closer and re-throws the Throwable. Any exceptions thrown while closing the Closer
+   * will be added as suppressed exceptions to the Throwable. This method always throws the given
+   * Throwable, wrapping it in a RuntimeException if it's a non-IOException checked exception.
+   *
+   * Note: This method will wrap non-IOExceptions in RuntimeException. Do not use this method in
+   * methods which throw non-IOExceptions.
+   *
+   * <pre>
+   * Closer closer = new Closer();
+   * try {
+   *   Closeable c = closer.register(new Closeable());
+   * } catch (Throwable t) {
+   *   throw closeAndRethrow(closer, t);
+   * }
+   * </pre>
+   *
+   * @param closer the Closer to close
+   * @param t the Throwable to re-throw
+   * @return this method never returns
+   */
+  public static RuntimeException closeAndRethrow(Closer closer, Throwable t) throws IOException {
+    try {
+      throw closer.rethrow(t);
+    } finally {
+      closer.close();
+    }
+  }
+
+  /**
+   * Unwraps a {@link alluxio.proto.dataserver.Protocol.Response}.
+   *
+   * @param response the response
+   */
+  public static void unwrapResponse(Protocol.Response response) throws AlluxioStatusException {
+    Status status = Status.fromProto(response.getStatus());
+    if (status != Status.OK) {
+      throw AlluxioStatusException.from(status, response.getMessage());
+    }
+  }
+
+  /**
+   * @param address the Alluxio worker network address
+   * @return true if the worker is local
+   */
+  public static boolean isLocalHost(WorkerNetAddress address) {
+    return address.getHost().equals(NetworkAddressUtils.getClientHostName());
   }
 
   private CommonUtils() {} // prevent instantiation
